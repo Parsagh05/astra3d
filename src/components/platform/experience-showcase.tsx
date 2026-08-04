@@ -178,7 +178,7 @@ export function ExperienceShowcase({
                   left: `${hotspot.position.x}%`,
                   top: `${hotspot.position.y}%`,
                 }}
-                aria-label={`Explore ${hotspot.label}`}
+                aria-label={`${index + 1} ${hotspot.label} — explore hotspot`}
                 aria-pressed={isActive}
                 onClick={() => setActiveHotspotId(hotspot.id)}
               >

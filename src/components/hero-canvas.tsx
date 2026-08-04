@@ -78,10 +78,15 @@ function getWebGLSupport() {
   return cachedWebGLSupport;
 }
 
-function useWebGLSupport() {
+function useWebGLSupport(enabled: boolean) {
+  const getSnapshot = useCallback(
+    () => (enabled ? getWebGLSupport() : false),
+    [enabled],
+  );
+
   return useSyncExternalStore(
     emptySubscribe,
-    getWebGLSupport,
+    getSnapshot,
     getServerSnapshot,
   );
 }
@@ -164,11 +169,48 @@ function useViewportActivity(target: RefObject<HTMLDivElement | null>) {
   return { hasEntered, isVisible };
 }
 
+function useDeferredEnhancement(
+  target: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+) {
+  const [requested, setRequested] = useState(false);
+
+  useEffect(() => {
+    const element = target.current;
+
+    if (!enabled || !element) {
+      return;
+    }
+
+    const requestEnhancement = () => setRequested(true);
+    const delay = window.setTimeout(requestEnhancement, 10_000);
+
+    element.addEventListener("pointerenter", requestEnhancement, {
+      once: true,
+    });
+    element.addEventListener("pointerdown", requestEnhancement, {
+      once: true,
+    });
+    element.addEventListener("touchstart", requestEnhancement, {
+      once: true,
+      passive: true,
+    });
+
+    return () => {
+      window.clearTimeout(delay);
+      element.removeEventListener("pointerenter", requestEnhancement);
+      element.removeEventListener("pointerdown", requestEnhancement);
+      element.removeEventListener("touchstart", requestEnhancement);
+    };
+  }, [enabled, target]);
+
+  return enabled && requested;
+}
+
 export function HeroCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
-  const supportsWebGL = useWebGLSupport();
   const prefersReducedMotion = useMediaQuery(
     "(prefers-reduced-motion: reduce)",
   );
@@ -179,7 +221,13 @@ export function HeroCanvas() {
   const savesData =
     typeof navigator !== "undefined" &&
     (navigator as NavigatorWithConnection).connection?.saveData === true;
+  const enhancementRequested = useDeferredEnhancement(
+    containerRef,
+    !prefersReducedMotion && !prefersReducedData && !savesData,
+  );
+  const supportsWebGL = useWebGLSupport(enhancementRequested);
   const canRender =
+    enhancementRequested &&
     supportsWebGL &&
     !prefersReducedMotion &&
     !prefersReducedData &&

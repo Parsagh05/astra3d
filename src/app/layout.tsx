@@ -66,6 +66,15 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" id="top">
+      <head>
+        <link
+          rel="preload"
+          href="/images/experience-retail.webp"
+          as="image"
+          type="image/webp"
+          fetchPriority="high"
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
