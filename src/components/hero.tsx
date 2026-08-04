@@ -1,4 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, Box, Orbit } from "lucide-react";
+import { DemoTrigger } from "@/components/demo-request";
 import { HeroCanvas } from "./hero-canvas";
 
 export function Hero() {
@@ -22,10 +23,10 @@ export function Hero() {
             Explore experiences
             <ArrowDownRight aria-hidden="true" />
           </a>
-          <a className="button button--ghost" href="#contact">
+          <DemoTrigger className="button button--ghost">
             Book a demo
             <ArrowUpRight aria-hidden="true" />
-          </a>
+          </DemoTrigger>
         </div>
         <div className="hero__signal" aria-label="Platform availability">
           <span>

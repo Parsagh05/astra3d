@@ -146,6 +146,7 @@ svg {
   background: var(--color-ice);
   box-shadow: 0 10px 40px rgba(56, 182, 255, 0.12);
   color: var(--color-surface-0);
+  cursor: pointer;
   font-size: 0.86rem;
   font-weight: 750;
   letter-spacing: -0.015em;

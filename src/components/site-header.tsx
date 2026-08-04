@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { DemoTrigger } from "@/components/demo-request";
 
 const navigation = [
   { href: "#platform", label: "Platform" },
@@ -43,9 +44,9 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <a className="button button--compact site-header__cta" href="#contact">
+        <DemoTrigger className="button button--compact site-header__cta">
           Book a demo
-        </a>
+        </DemoTrigger>
 
         <button
           className="site-header__menu-button"
@@ -70,9 +71,9 @@ export function SiteHeader() {
             {item.label}
           </a>
         ))}
-        <a className="button" href="#contact" onClick={closeMenu}>
+        <DemoTrigger className="button" onOpen={closeMenu}>
           Book a demo
-        </a>
+        </DemoTrigger>
       </nav>
     </header>
   );

@@ -1,33 +1,40 @@
 import { CapabilityRail } from "@/components/capability-rail";
+import { DemoRequestProvider, DemoTrigger } from "@/components/demo-request";
 import { Hero } from "@/components/hero";
 import { PlatformSections } from "@/components/platform";
+import { SeoStructuredData } from "@/components/seo-structured-data";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 export default function HomePage() {
   return (
-    <div className="site-frame">
-      <a className="skip-link" href="#main-content">
-        Skip to content
-      </a>
-      <div className="ambient-grid" aria-hidden="true" />
-      <SiteHeader />
-      <main id="main-content">
-        <Hero />
-        <CapabilityRail />
-        <PlatformSections />
-
-        <section className="closing-shell section-shell" id="contact">
-          <p className="eyebrow">The next dimension is ready</p>
-          <h2>Your next storefront doesn&apos;t need walls.</h2>
-          <a className="button" href="mailto:hello@astra3d.com">
-            Start a conversation
-            <ArrowIcon />
+    <>
+      <SeoStructuredData />
+      <DemoRequestProvider>
+        <div className="site-frame">
+          <a className="skip-link" href="#main-content">
+            Skip to content
           </a>
-        </section>
-      </main>
-      <SiteFooter />
-    </div>
+          <div className="ambient-grid" aria-hidden="true" />
+          <SiteHeader />
+          <main id="main-content">
+            <Hero />
+            <CapabilityRail />
+            <PlatformSections />
+
+            <section className="closing-shell section-shell" id="contact">
+              <p className="eyebrow">The next dimension is ready</p>
+              <h2>Your next storefront doesn&apos;t need walls.</h2>
+              <DemoTrigger className="button">
+                Start a conversation
+                <ArrowIcon />
+              </DemoTrigger>
+            </section>
+          </main>
+          <SiteFooter />
+        </div>
+      </DemoRequestProvider>
+    </>
   );
 }
 
