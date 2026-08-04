@@ -410,7 +410,8 @@ svg {
   overflow: hidden;
   border-radius: 2rem;
   background:
-    linear-gradient(145deg, rgba(16, 34, 60, 0.72), rgba(4, 12, 24, 0.9)),
+    linear-gradient(145deg, rgba(10, 25, 44, 0.42), rgba(4, 12, 24, 0.84)),
+    url("/images/experience-retail.webp") center / cover,
     var(--color-surface-1);
   isolation: isolate;
 }
@@ -438,6 +439,30 @@ svg {
   transform-origin: center bottom;
 }
 
+.hero-portal__canvas {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0;
+  touch-action: pan-y;
+  transition: opacity 700ms ease;
+}
+
+.hero-portal__canvas[data-ready="true"] {
+  opacity: 1;
+}
+
+.hero-portal__webgl {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.hero-portal__canvas[data-ready="true"] ~ .hero-portal__orbit,
+.hero-portal__canvas[data-ready="true"] ~ .hero-portal__core {
+  opacity: 0;
+}
+
 .hero-portal__orbit {
   position: absolute;
   top: 50%;
@@ -448,6 +473,7 @@ svg {
     inset 0 0 30px rgba(56, 182, 255, 0.08),
     0 0 35px rgba(56, 182, 255, 0.08);
   transform: translate(-50%, -50%);
+  transition: opacity 450ms ease;
 }
 
 .hero-portal__orbit::before {
@@ -490,6 +516,7 @@ svg {
     inset 0 0 3rem rgba(255, 255, 255, 0.08),
     0 0 5rem rgba(56, 182, 255, 0.25);
   transform: translate(-50%, -50%) rotate(45deg);
+  transition: opacity 450ms ease;
 }
 
 .hero-portal__core span {

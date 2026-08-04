@@ -1,4 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, Box, Orbit } from "lucide-react";
+import { HeroCanvas } from "./hero-canvas";
 
 export function Hero() {
   return (
@@ -39,6 +40,7 @@ export function Hero() {
       <div className="hero__visual" aria-hidden="true">
         <div className="hero-portal glass-panel">
           <div className="hero-portal__grid" />
+          <HeroCanvas />
           <div className="hero-portal__orbit hero-portal__orbit--outer" />
           <div className="hero-portal__orbit hero-portal__orbit--inner" />
           <div className="hero-portal__core">
