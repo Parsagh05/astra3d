@@ -622,20 +622,6 @@ svg {
   font-size: 0.7rem;
 }
 
-.section-heading {
-  max-width: 47rem;
-}
-
-.section-heading[data-align="center"] {
-  margin-inline: auto;
-  text-align: center;
-}
-
-.section-heading[data-align="center"] .eyebrow {
-  justify-content: center;
-}
-
-.section-heading h2,
 .closing-shell h2 {
   margin: 1rem 0 1.1rem;
   font-family: var(--font-display);
@@ -643,71 +629,6 @@ svg {
   font-weight: 520;
   letter-spacing: -0.065em;
   line-height: 0.98;
-}
-
-.section-heading > p:last-child {
-  max-width: 40rem;
-  margin: 0;
-  color: var(--color-muted-strong);
-  font-size: 1rem;
-}
-
-.foundation-section {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(22rem, 1.2fr);
-  align-items: center;
-  gap: clamp(3rem, 7vw, 7rem);
-  padding-block: clamp(7rem, 12vw, 11rem);
-}
-
-.foundation-section__preview {
-  position: relative;
-  display: grid;
-  min-height: 24rem;
-  overflow: hidden;
-  place-items: center;
-  border-radius: var(--radius-lg);
-}
-
-.foundation-section__preview::before,
-.foundation-section__preview::after {
-  position: absolute;
-  border: 1px solid rgba(103, 220, 255, 0.28);
-  border-radius: 50%;
-  content: "";
-}
-
-.foundation-section__preview::before {
-  width: 18rem;
-  height: 18rem;
-}
-
-.foundation-section__preview::after {
-  width: 11rem;
-  height: 11rem;
-  border-style: dashed;
-}
-
-.foundation-section__preview span {
-  position: absolute;
-  top: 1.2rem;
-  left: 1.4rem;
-  color: var(--color-muted);
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-}
-
-.foundation-section__preview div {
-  width: 4rem;
-  height: 4rem;
-  background: var(--color-cyan);
-  box-shadow: 0 0 5rem rgba(56, 182, 255, 0.6);
-  transform: rotate(45deg);
-}
-
-.anchor-section {
-  min-height: 1px;
 }
 
 .closing-shell {
@@ -894,13 +815,6 @@ svg {
     aspect-ratio: 1.2 / 1;
   }
 
-  .foundation-section {
-    grid-template-columns: 1fr;
-  }
-
-  .foundation-section__preview {
-    min-height: 21rem;
-  }
 }
 
 @media (max-width: 680px) {
@@ -976,19 +890,8 @@ svg {
     border-left: 0;
   }
 
-  .section-heading h2,
   .closing-shell h2 {
     font-size: clamp(2.4rem, 12vw, 4rem);
-  }
-
-  .foundation-section {
-    gap: 2.5rem;
-    padding-block: 6.5rem;
-  }
-
-  .foundation-section__preview {
-    min-height: 18rem;
-    border-radius: 1.3rem;
   }
 
   .closing-shell {
