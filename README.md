@@ -1,19 +1,23 @@
-# Astra3D — Immersive Spatial Commerce
+# Astra3D — Interactive Spatial Commerce
 
-Astra3D is an original, experience-first marketing application for a fictional spatial-commerce platform. It combines a progressively enhanced WebGL hero, interactive industry environments, an accessible demo-request flow, and a code-built product dashboard in a statically exportable Next.js application.
+Astra3D is an original, experience-first application for a fictional spatial-commerce platform. Its centerpiece is a functional, three-room 360° retail flagship that visitors can explore with a pointer, keyboard, touchscreen, or static fallback. The tour sits inside a polished marketing experience with a progressively enhanced WebGL hero, industry showcases, an accessible demo-request flow, and a code-built product dashboard.
 
-The visual identity and copy were created for this project. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
+The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
 
 ## Highlights
 
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
 - Automatic static fallback for reduced motion, reduced data, unavailable WebGL, or a lost WebGL context.
+- A functional three-room flagship tour with linked 360° panoramas for Arrival, Collection, and Private Lounge.
+- Drag, swipe, arrow-key, zoom, reset, and fullscreen controls, with projected hotspots that stay attached to points in each scene.
+- Navigation, product, and editorial hotspots; a clickable floor plan; scene lists; and shareable scene/hotspot URLs.
+- Code-built product previews with rotation, zoom, and finish selection. Prices, availability, and the local demo bag are illustrative and never create an order or payment.
 - Four original optimized environment renders for retail, real estate, hospitality, and art.
 - Keyboard-operable industry tabs and spatial hotspots with live detail updates.
-- Import → Customize → Launch workflow, demonstrative Control Center, and capability bento grid.
+- Import → Customize → Launch workflow, illustrative Control Center, and capability bento grid.
 - Responsive floating navigation and an accessible modal with validation, focus trapping, Escape dismissal, focus restoration, and local-only success state.
 - Static metadata, canonical URL, Open Graph image, robots, sitemap, and `SoftwareApplication` structured data.
-- Vitest component tests plus Playwright coverage at 1440×900 and 390×844, including axe, reduced-motion, and forced-WebGL-failure checks.
+- Vitest component tests plus Playwright browser coverage, including accessibility, responsive layouts, reduced-motion, and WebGL-failure behavior.
 
 ## Technology
 
@@ -55,15 +59,7 @@ The Playwright projects use the locally installed Google Chrome channel. Install
 
 ## Release verification
 
-The final local production audit on August 5, 2026 completed with:
-
-- 9 Vitest tests across 6 component test files.
-- 16 passing Playwright checks across 1440×900 desktop and 390×844 mobile projects, plus 2 intentional project-specific skips.
-- No serious or critical axe violations on the landing page or demo dialog.
-- Lighthouse scores of 91 Performance, 100 Accessibility, 100 Best Practices, and 100 SEO.
-- 0 production or development dependency vulnerabilities reported by `npm audit`.
-
-Lighthouse results are lab measurements from the local static preview and can vary by machine and hosting conditions.
+Run `npm run verify` against every release candidate. It exercises linting, strict type checking, unit tests, the production static export, and browser interaction tests. Accessibility and performance audits are lab measurements and can vary by machine and hosting conditions; do not treat a previous local score as a guarantee for a new build.
 
 ## Static deployment
 
@@ -85,10 +81,15 @@ src/
 ├── app/                    Route, global styles, metadata, robots, and sitemap
 ├── components/
 │   ├── demo-request/       Accessible local demo-request experience
-│   └── platform/           Showcase, workflow, dashboard, and capability sections
-├── data/platform.ts        Typed experience and capability content
+│   ├── platform/           Showcase, workflow, dashboard, and capability sections
+│   └── tour/               Panorama, hotspot, floor-plan, and product interactions
+├── data/
+│   ├── flagship-tour.ts    Three-scene tour, hotspots, and demo product catalog
+│   └── platform.ts         Typed experience and capability content
 ├── test/                   Vitest component coverage
-└── types/platform.ts       Experience, Hotspot, Capability, and LeadRequest models
+└── types/
+    ├── platform.ts         Marketing experience and lead-request models
+    └── tour.ts             Panorama, scene, hotspot, and product models
 tests/e2e/                  Playwright interaction and accessibility coverage
 public/images/              Optimized environments and Open Graph artwork
 ```
@@ -96,6 +97,26 @@ public/images/              Optimized environments and Open Graph artwork
 Edit `src/data/platform.ts` to change industries, hotspots, capabilities, workflow steps, or demonstrative dashboard values. Each `Experience` points to a local image and supplies positioned hotspots as percentages so the showcase remains responsive.
 
 The hero's progressive-rendering decisions live in `src/components/hero-canvas.tsx`; the Three.js scene itself lives in `src/components/hero-scene.tsx` and is lazy-loaded on capable devices.
+
+## Functional flagship tour
+
+The flagship content model lives in `src/data/flagship-tour.ts`. Each scene defines responsive equirectangular panorama sources, a poster fallback, an initial camera view, a floor-plan position, and typed hotspots. Hotspot actions are discriminated as navigation, information, or product interactions. Product entries include local finish options and visibly marked demonstration-commerce metadata.
+
+The tour UI is lazy-loaded from `src/components/tour/`. Its enhanced path maps a panorama to the inside of a WebGL sphere and projects hotspot yaw/pitch coordinates into the current viewport. Visitors can drag or swipe to look around, use keyboard controls, zoom and reset the camera, jump between rooms from the floor plan, open detail panels, inspect code-built products, enter fullscreen where supported, and copy a deep link or iframe snippet. If enhanced rendering is unavailable, the same scene content and interactions remain available over a static poster.
+
+The share controls create a URL for the currently hosted build and, where available, use the browser share or clipboard API. They do not publish the site, provision an embed service, or create a Google Business listing.
+
+## Demonstration boundaries
+
+This repository does not include authentication, a CMS, cloud storage, panorama capture or stitching, a no-code builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. In particular:
+
+- The Import, Customize, and Launch workflow describes the proposed product; visitors cannot upload scans or author tours in this release.
+- Control Center metrics, journey paths, engagement totals, and inventory rows are illustrative demo data. No visitor behavior is collected or stored.
+- Product prices and availability are fictional. Finish selection and the demo bag exist only in local React state and do not reserve stock, create a cart, place an order, or charge a payment method.
+- The demo-request form validates in the browser and shows a local confirmation, but it does not transmit or retain contact information.
+- Share links and embed snippets work only after the static site is hosted at the configured canonical origin.
+- This release supports desktop, mobile, and tablet browsers. It does not start a WebXR session or provide headset/controller interaction, so it is not advertised as a VR experience.
+- Retail is the only fully walkable multi-room tour in this release. Real-estate, hospitality, and art sections are labeled interactive concept previews.
 
 ## Demo-request behavior
 
@@ -111,5 +132,7 @@ The four showcase environments were generated as original visual assets for this
 - `public/images/experience-art.webp`
 
 The prompt direction specified premium 16:9 architectural visualizations in midnight navy, ice white, electric cyan, and restrained warm gold; clean composition zones for code-native hotspots; and no people, text, logos, trademarks, watermarks, UI, or collage layouts. The Open Graph image is a deterministic 1200×630 crop derived from the original retail render.
+
+The interactive flagship uses three original equirectangular demonstration scenes, each exported in 2048×1024 desktop and 1280×640 mobile variants plus a 960×540 poster fallback under `public/images/tours/flagship/`. They depict the same fictional boutique across Arrival, Collection, and Private Lounge; they are not photographs or scans of an existing property.
 
 All logos, icons, charts, dashboard chrome, and interface treatments are code-native.
