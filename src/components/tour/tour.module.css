@@ -1,0 +1,1627 @@
+.backdrop {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  background: #02060c;
+  color: #f4f8fc;
+}
+
+.tourDialog {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100dvh;
+  grid-template-rows: 4.65rem minmax(0, 1fr);
+  overflow: hidden;
+  background: #02060c;
+  isolation: isolate;
+}
+
+.tourDialog button,
+.tourDialog a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tourDialog button {
+  color: inherit;
+  cursor: pointer;
+}
+
+.tourHeader {
+  position: relative;
+  z-index: 40;
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: minmax(15rem, 1fr) auto minmax(15rem, 1fr);
+  gap: 1rem;
+  padding: 0.66rem clamp(0.75rem, 2vw, 1.5rem);
+  border-bottom: 1px solid rgba(192, 221, 245, 0.16);
+  background:
+    linear-gradient(90deg, rgba(5, 12, 24, 0.98), rgba(9, 22, 39, 0.96)),
+    #050b16;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+}
+
+.tourBrand {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.tourBrand > span {
+  flex: 0 0 auto;
+}
+
+.tourBrand > div {
+  min-width: 0;
+  padding-left: 0.9rem;
+  border-left: 1px solid rgba(192, 221, 245, 0.17);
+}
+
+.tourBrand p,
+.sceneIdentity small {
+  margin: 0;
+  color: #67dcff;
+  font-size: 0.61rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.tourBrand h1 {
+  overflow: hidden;
+  margin: 0.12rem 0 0;
+  font-family: var(--font-display);
+  font-size: 0.93rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sceneIdentity {
+  display: flex;
+  min-width: 13rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.sceneIdentity > span {
+  display: grid;
+  width: 2.45rem;
+  height: 2.45rem;
+  place-items: center;
+  border: 1px solid rgba(103, 220, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(56, 182, 255, 0.08);
+  color: #67dcff;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.sceneIdentity > div {
+  display: grid;
+}
+
+.sceneIdentity strong {
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.tourActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.42rem;
+}
+
+.tourActions button,
+.panelTopline button {
+  display: inline-flex;
+  min-width: 2.85rem;
+  min-height: 2.85rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.48rem;
+  padding: 0.58rem 0.72rem;
+  border: 1px solid rgba(192, 221, 245, 0.16);
+  border-radius: 999px;
+  background: rgba(244, 248, 252, 0.035);
+  font-size: 0.7rem;
+  font-weight: 750;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.tourActions button:hover,
+.tourActions button[aria-pressed="true"],
+.panelTopline button:hover {
+  border-color: rgba(103, 220, 255, 0.48);
+  background: rgba(56, 182, 255, 0.12);
+}
+
+.tourActions button:hover,
+.panelTopline button:hover {
+  transform: translateY(-1px);
+}
+
+.tourActions svg,
+.panelTopline svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.tourActions .closeTour {
+  margin-left: 0.25rem;
+  border-color: rgba(244, 248, 252, 0.26);
+  background: rgba(244, 248, 252, 0.09);
+}
+
+.tourMain {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #03070d;
+}
+
+.viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #07101d;
+  cursor: grab;
+  outline: 0;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewport[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.viewport:focus-visible::after {
+  position: absolute;
+  z-index: 35;
+  inset: 0.45rem;
+  border: 2px solid #67dcff;
+  border-radius: 0.7rem;
+  content: "";
+  pointer-events: none;
+}
+
+.viewport canvas {
+  display: block;
+}
+
+.viewportShade {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(1, 5, 10, 0.27), transparent 25%, transparent 68%, rgba(1, 5, 10, 0.52)),
+    linear-gradient(90deg, rgba(1, 5, 10, 0.18), transparent 21%, transparent 75%, rgba(1, 5, 10, 0.2));
+  pointer-events: none;
+}
+
+.viewportMeta {
+  position: absolute;
+  z-index: 8;
+  top: 1rem;
+  left: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  pointer-events: none;
+}
+
+.viewportMeta span {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.4rem 0.64rem;
+  border: 1px solid rgba(205, 228, 247, 0.18);
+  border-radius: 999px;
+  background: rgba(3, 10, 19, 0.72);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(16px);
+  color: #dce9f5;
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.viewportMeta i {
+  width: 0.43rem;
+  height: 0.43rem;
+  border-radius: 50%;
+  background: #65e5b5;
+  box-shadow: 0 0 14px rgba(101, 229, 181, 0.8);
+}
+
+.loadingState {
+  position: absolute;
+  z-index: 20;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.72rem;
+  padding: 0.62rem 0.9rem;
+  border: 1px solid rgba(192, 221, 245, 0.18);
+  border-radius: 999px;
+  background: rgba(4, 12, 23, 0.88);
+  backdrop-filter: blur(16px);
+  color: #dce9f5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  transform: translate(-50%, -50%);
+}
+
+.loadingState span {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(103, 220, 255, 0.2);
+  border-top-color: #67dcff;
+  border-radius: 50%;
+  animation: tourSpin 700ms linear infinite;
+}
+
+@keyframes tourSpin {
+  to { transform: rotate(360deg); }
+}
+
+.fallbackNotice {
+  position: absolute;
+  z-index: 15;
+  top: 1rem;
+  left: 50%;
+  display: flex;
+  width: min(calc(100% - 2rem), 34rem);
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(212, 180, 131, 0.35);
+  border-radius: 0.8rem;
+  background: rgba(17, 15, 13, 0.9);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+}
+
+.fallbackNotice > svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: 0 0 auto;
+  color: #d4b483;
+}
+
+.fallbackNotice div {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.fallbackNotice strong {
+  font-size: 0.72rem;
+}
+
+.fallbackNotice span {
+  color: #aab8c9;
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.spatialHotspot {
+  --hotspot-color: #67dcff;
+  position: absolute;
+  z-index: 12;
+  top: var(--hotspot-y);
+  left: var(--hotspot-x);
+  display: grid;
+  min-width: 3rem;
+  min-height: 3rem;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translate(-50%, -50%);
+}
+
+.spatialHotspot[data-type="product"] {
+  --hotspot-color: #e3bd82;
+}
+
+.spatialHotspot[data-type="navigate"] {
+  --hotspot-color: #8ee9ff;
+}
+
+.spatialHotspot::before,
+.spatialHotspot::after {
+  position: absolute;
+  width: 2.45rem;
+  height: 2.45rem;
+  border: 1px solid color-mix(in srgb, var(--hotspot-color) 62%, transparent);
+  border-radius: 50%;
+  content: "";
+}
+
+.spatialHotspot::before {
+  background: color-mix(in srgb, var(--hotspot-color) 13%, rgba(3, 10, 19, 0.74));
+  box-shadow:
+    0 0 0 0.32rem rgba(3, 9, 16, 0.28),
+    0 0 2rem color-mix(in srgb, var(--hotspot-color) 32%, transparent);
+  backdrop-filter: blur(9px);
+}
+
+.spatialHotspot::after {
+  animation: hotspotPulse 2.4s ease-out infinite;
+}
+
+@keyframes hotspotPulse {
+  0% { opacity: 0.7; transform: scale(0.86); }
+  70%, 100% { opacity: 0; transform: scale(1.6); }
+}
+
+.spatialHotspot > span {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hotspot-color);
+  color: #06101c;
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.spatialHotspot > span svg {
+  width: 0.88rem;
+  height: 0.88rem;
+}
+
+.spatialHotspot small {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 0.28rem);
+  width: max-content;
+  max-width: 12rem;
+  padding: 0.42rem 0.6rem;
+  border: 1px solid rgba(206, 230, 248, 0.2);
+  border-radius: 0.55rem;
+  opacity: 0;
+  background: rgba(3, 10, 19, 0.9);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  color: #f4f8fc;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transform: translate(0.25rem, -50%);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+  pointer-events: none;
+}
+
+.spatialHotspot:hover small,
+.spatialHotspot:focus-visible small {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.tourTips {
+  position: absolute;
+  z-index: 28;
+  top: 50%;
+  left: 50%;
+  width: min(calc(100% - 2rem), 31rem);
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid rgba(199, 226, 248, 0.22);
+  border-radius: 1.25rem;
+  background:
+    radial-gradient(circle at 80% 0%, rgba(56, 182, 255, 0.16), transparent 13rem),
+    rgba(4, 12, 23, 0.93);
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(28px);
+  transform: translate(-50%, -50%);
+}
+
+.tipsScrim {
+  position: absolute;
+  z-index: 27;
+  inset: 0;
+  background: rgba(1, 5, 10, 0.5);
+  backdrop-filter: blur(4px);
+}
+
+.tourTips > p,
+.helpPanel > p,
+.sharePanel > p:first-child {
+  margin: 0;
+  color: #67dcff;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.tourTips h2,
+.helpPanel h2,
+.sharePanel h2 {
+  margin: 0.55rem 0 1.1rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 3vw, 2.25rem);
+  font-weight: 590;
+  letter-spacing: -0.045em;
+  line-height: 1.06;
+}
+
+.tourTips > div {
+  display: grid;
+  gap: 0.58rem;
+  margin-bottom: 1.25rem;
+}
+
+.tourTips > div span {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #b9c8d8;
+  font-size: 0.76rem;
+}
+
+.tourTips > div svg {
+  width: 1rem;
+  height: 1rem;
+  color: #67dcff;
+}
+
+.tourTips > button,
+.demoBagButton,
+.sharePanel > button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 0.72rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #f4f8fc;
+  color: #050b16;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.tourTips > button svg,
+.demoBagButton svg,
+.sharePanel > button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.lookControls {
+  position: absolute;
+  z-index: 18;
+  bottom: 1rem;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(199, 226, 248, 0.19);
+  border-radius: 999px;
+  background: rgba(3, 10, 19, 0.76);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+}
+
+.lookControls > div {
+  display: contents;
+}
+
+.lookControls > span {
+  width: 1px;
+  height: 1.3rem;
+  margin-inline: 0.18rem;
+  background: rgba(199, 226, 248, 0.2);
+}
+
+.lookControls button,
+.productControls button {
+  display: grid;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  place-items: center;
+  padding: 0.45rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 0.67rem;
+  font-weight: 750;
+}
+
+.lookControls button:hover,
+.productControls button:hover {
+  background: rgba(103, 220, 255, 0.13);
+}
+
+.lookControls svg,
+.productControls svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.sceneRail {
+  position: absolute;
+  z-index: 22;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(22rem, calc(100% - 2rem));
+  overflow: auto;
+  border: 1px solid rgba(199, 226, 248, 0.18);
+  border-radius: 1rem;
+  background:
+    linear-gradient(160deg, rgba(12, 27, 47, 0.92), rgba(4, 12, 23, 0.94));
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(24px);
+  scrollbar-color: rgba(103, 220, 255, 0.35) transparent;
+  scrollbar-width: thin;
+}
+
+.sceneOverview,
+.infoPanel,
+.productPanel {
+  min-height: 100%;
+  padding: 1.25rem;
+}
+
+.sceneOverview > p:first-child,
+.productCopy > p:first-child {
+  margin: 0;
+  color: #67dcff;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.sceneOverview h2,
+.infoPanel h2,
+.productCopy h2 {
+  margin: 0.55rem 0 0.75rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+  font-weight: 580;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+
+.sceneOverview > p:nth-child(3),
+.infoPanel > p,
+.productCopy > p:last-child,
+.sharePanel > p {
+  margin: 0;
+  color: #aab9ca;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.sceneFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 1rem 0 1.15rem;
+}
+
+.sceneFacts span {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.35rem 0.58rem;
+  border: 1px solid rgba(192, 221, 245, 0.14);
+  border-radius: 999px;
+  color: #c3d1df;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.sceneFacts svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  color: #67dcff;
+}
+
+.pointList {
+  display: grid;
+  gap: 0.42rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(192, 221, 245, 0.13);
+}
+
+.pointList > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.15rem 0.12rem 0.55rem;
+  font-size: 0.68rem;
+}
+
+.pointList > div span {
+  display: grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(103, 220, 255, 0.11);
+  color: #67dcff;
+  font-weight: 800;
+}
+
+.pointList > button {
+  display: grid;
+  min-height: 3.75rem;
+  align-items: center;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
+  gap: 0.68rem;
+  padding: 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.78rem;
+  background: rgba(244, 248, 252, 0.025);
+  text-align: left;
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease;
+}
+
+.pointList > button:hover {
+  border-color: rgba(103, 220, 255, 0.25);
+  background: rgba(56, 182, 255, 0.075);
+}
+
+.pointList > button > span:first-child {
+  display: grid;
+  width: 2.1rem;
+  height: 2.1rem;
+  place-items: center;
+  border: 1px solid rgba(103, 220, 255, 0.3);
+  border-radius: 50%;
+  color: #67dcff;
+}
+
+.pointList > button > span:first-child[data-type="product"] {
+  border-color: rgba(212, 180, 131, 0.36);
+  color: #d4b483;
+}
+
+.pointList svg {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.pointList > button > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.pointList > button strong {
+  overflow: hidden;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pointList > button small {
+  color: #8799ad;
+  font-size: 0.59rem;
+}
+
+.pointList > button i {
+  color: #61758a;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.openMapButton {
+  display: inline-flex;
+  width: 100%;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  border: 1px solid rgba(192, 221, 245, 0.17);
+  border-radius: 0.75rem;
+  background: rgba(244, 248, 252, 0.035);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.openMapButton svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.desktopMap {
+  position: absolute;
+  z-index: 20;
+  bottom: 1rem;
+  left: 1rem;
+  width: 15.5rem;
+  border: 1px solid rgba(199, 226, 248, 0.18);
+  border-radius: 0.9rem;
+  background: rgba(4, 12, 23, 0.82);
+  box-shadow: 0 20px 64px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(20px);
+}
+
+.floorPlan {
+  padding: 0.85rem;
+}
+
+.floorPlanHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.floorPlanHeader p {
+  margin: 0;
+  color: #67dcff;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.floorPlanHeader h2 {
+  margin: 0.12rem 0 0;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 620;
+}
+
+.floorPlanHeader > span {
+  color: #8092a6;
+  font-size: 0.6rem;
+  font-weight: 750;
+}
+
+.planDrawing {
+  position: relative;
+  aspect-ratio: 1.7;
+  margin-top: 0.62rem;
+  overflow: hidden;
+  border: 1px solid rgba(192, 221, 245, 0.13);
+  border-radius: 0.68rem;
+  background:
+    linear-gradient(rgba(103, 220, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(103, 220, 255, 0.04) 1px, transparent 1px),
+    rgba(8, 19, 33, 0.74);
+  background-size: 1.2rem 1.2rem;
+}
+
+.planDrawing svg {
+  width: 100%;
+  height: 100%;
+}
+
+.planDrawing svg path {
+  fill: rgba(103, 220, 255, 0.035);
+  stroke: rgba(198, 224, 244, 0.34);
+  stroke-width: 2;
+}
+
+.planDrawing svg .planConnector,
+.planDrawing svg .planDoor {
+  fill: none;
+  stroke: #67dcff;
+  stroke-dasharray: 4 4;
+}
+
+.planNode {
+  position: absolute;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(199, 226, 248, 0.34);
+  border-radius: 50%;
+  background: #0a1a2c;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+  color: #b7c8d8;
+  transform: translate(-50%, -50%);
+}
+
+.planNode[data-current="true"] {
+  border-color: #67dcff;
+  background: #67dcff;
+  box-shadow: 0 0 0 0.3rem rgba(103, 220, 255, 0.15);
+  color: #06101c;
+}
+
+.planNode span {
+  position: relative;
+  z-index: 2;
+  font-size: 0.64rem;
+  font-weight: 850;
+}
+
+.planNode i {
+  position: absolute;
+  top: -0.7rem;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-right: 0.38rem solid transparent;
+  border-bottom: 0.82rem solid #67dcff;
+  border-left: 0.38rem solid transparent;
+  transform-origin: 50% 2.075rem;
+}
+
+.youAreHere {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.65rem 0 0;
+  color: #91a4b8;
+  font-size: 0.61rem;
+}
+
+.youAreHere svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  color: #67dcff;
+}
+
+.youAreHere strong {
+  color: #dce8f4;
+}
+
+.locationList {
+  display: grid;
+  gap: 0.38rem;
+  margin-top: 0.72rem;
+}
+
+.locationList button {
+  display: grid;
+  min-height: 2.75rem;
+  align-items: center;
+  grid-template-columns: 1.65rem 1fr;
+  gap: 0.6rem;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(192, 221, 245, 0.13);
+  border-radius: 0.6rem;
+  background: rgba(244, 248, 252, 0.025);
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.locationList button[data-current="true"] {
+  border-color: rgba(103, 220, 255, 0.36);
+  background: rgba(56, 182, 255, 0.1);
+}
+
+.locationList button span {
+  color: #67dcff;
+  font-size: 0.57rem;
+}
+
+.desktopMap .locationList {
+  display: none;
+}
+
+.panelTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panelTopline > span {
+  color: #67dcff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.panelTopline button {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+}
+
+.infoIcon {
+  display: grid;
+  width: 3.3rem;
+  height: 3.3rem;
+  margin: 1.2rem 0;
+  place-items: center;
+  border: 1px solid rgba(103, 220, 255, 0.28);
+  border-radius: 50%;
+  background: rgba(56, 182, 255, 0.09);
+  color: #67dcff;
+}
+
+.infoIcon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.infoPanel dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1.35rem 0 0;
+}
+
+.infoPanel dl > div {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid rgba(192, 221, 245, 0.13);
+  border-radius: 0.65rem;
+  background: rgba(244, 248, 252, 0.025);
+}
+
+.infoPanel dt {
+  color: #8496aa;
+  font-size: 0.62rem;
+}
+
+.infoPanel dd {
+  margin: 0;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.productPanel {
+  display: flex;
+  flex-direction: column;
+}
+
+.productStage {
+  position: relative;
+  height: 15rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(192, 221, 245, 0.15);
+  border-radius: 0.85rem;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(103, 220, 255, 0.12), transparent 48%),
+    linear-gradient(145deg, rgba(20, 39, 64, 0.78), rgba(5, 14, 26, 0.9));
+  cursor: grab;
+  outline: 0;
+  touch-action: none;
+}
+
+.productStage:active {
+  cursor: grabbing;
+}
+
+.productPanel[data-product-renderer="static"] .productStage {
+  cursor: default;
+}
+
+.productStage:focus-visible {
+  box-shadow: inset 0 0 0 2px #67dcff;
+}
+
+.productStage > div:not(.productFallback) {
+  position: absolute !important;
+  z-index: 2;
+  inset: 0;
+}
+
+.productFallback {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: 48%;
+  aspect-ratio: 1.6;
+  border: 1px solid rgba(103, 220, 255, 0.12);
+  border-radius: 35% 35% 24% 24%;
+  background: rgba(12, 24, 40, 0.62);
+  transform: translate(-50%, -50%);
+}
+
+.stageHint {
+  position: absolute;
+  z-index: 4;
+  right: 0.6rem;
+  bottom: 0.5rem;
+  left: 0.6rem;
+  margin: 0;
+  color: #8295a9;
+  font-size: 0.56rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.productControls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  margin: 0.55rem 0 0.9rem;
+}
+
+.productControls button {
+  display: inline-flex;
+  gap: 0.35rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding-inline: 0.55rem;
+}
+
+.productCopy h2 {
+  margin-bottom: 0.5rem;
+}
+
+.productPrice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.65rem;
+}
+
+.productPrice strong {
+  color: #f1d2a1;
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+}
+
+.productPrice span {
+  color: #82a794;
+  font-size: 0.58rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.finishPicker {
+  margin: 1rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.finishPicker legend {
+  margin-bottom: 0.55rem;
+  font-size: 0.65rem;
+  font-weight: 750;
+}
+
+.finishPicker > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.finishPicker label {
+  position: relative;
+  display: grid;
+  min-height: 3rem;
+  align-items: center;
+  grid-template-columns: 1.65rem 1fr;
+  gap: 0.62rem;
+  padding: 0.5rem 0.62rem;
+  border: 1px solid rgba(192, 221, 245, 0.12);
+  border-radius: 0.62rem;
+  background: rgba(244, 248, 252, 0.02);
+  cursor: pointer;
+}
+
+.finishPicker label:has(input:checked) {
+  border-color: rgba(103, 220, 255, 0.42);
+  background: rgba(56, 182, 255, 0.08);
+}
+
+.finishPicker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.finishPicker input:focus-visible + .finishSwatch {
+  outline: 2px solid #67dcff;
+  outline-offset: 3px;
+}
+
+.finishSwatch {
+  display: block;
+  width: 1.45rem;
+  height: 1.45rem;
+  border: 2px solid rgba(244, 248, 252, 0.36);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(3, 10, 19, 0.62);
+}
+
+.finishPicker label > span:last-child {
+  display: grid;
+}
+
+.finishPicker strong {
+  font-size: 0.65rem;
+}
+
+.finishPicker small {
+  color: #8093a7;
+  font-size: 0.56rem;
+}
+
+.productDetails {
+  display: grid;
+  gap: 0.28rem;
+  margin: 0.85rem 0 1rem;
+  padding: 0;
+  color: #9eafc0;
+  font-size: 0.61rem;
+  list-style: none;
+}
+
+.productDetails li::before {
+  margin-right: 0.45rem;
+  color: #67dcff;
+  content: "—";
+}
+
+.demoBagButton {
+  width: 100%;
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+
+.demoBagButton[data-added="true"] {
+  background: #a9ebd0;
+}
+
+.commerceDisclosure {
+  display: block;
+  margin-top: 0.55rem;
+  color: #73869a;
+  font-size: 0.54rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.overlayScrim {
+  position: absolute;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(1, 5, 10, 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.overlayPanel {
+  width: min(100%, 34rem);
+  max-height: min(46rem, calc(100dvh - 7rem));
+  overflow: auto;
+  padding: 1.15rem;
+  border: 1px solid rgba(199, 226, 248, 0.2);
+  border-radius: 1.15rem;
+  background:
+    radial-gradient(circle at 85% 0%, rgba(56, 182, 255, 0.13), transparent 16rem),
+    rgba(5, 14, 27, 0.98);
+  box-shadow: 0 36px 120px rgba(0, 0, 0, 0.58);
+  scrollbar-width: thin;
+}
+
+.helpPanel,
+.sharePanel {
+  padding: 0.35rem 0.25rem 0.25rem;
+}
+
+.helpPanel > div {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.55rem;
+}
+
+.helpPanel article {
+  padding: 0.8rem;
+  border: 1px solid rgba(192, 221, 245, 0.13);
+  border-radius: 0.72rem;
+  background: rgba(244, 248, 252, 0.025);
+}
+
+.helpPanel article > svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: #67dcff;
+}
+
+.helpPanel h3 {
+  margin: 0.7rem 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+}
+
+.helpPanel article p {
+  margin: 0;
+  color: #8799ad;
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
+.helpPanel dl {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.8rem 0 0;
+}
+
+.helpPanel dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.48rem 0.1rem;
+  border-bottom: 1px solid rgba(192, 221, 245, 0.1);
+  font-size: 0.64rem;
+}
+
+.helpPanel dt {
+  color: #8ea1b5;
+}
+
+.helpPanel dd {
+  margin: 0;
+  font-weight: 700;
+  text-align: right;
+}
+
+.sharePanel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.sharePanel h2 {
+  margin-bottom: 0.35rem;
+}
+
+.sharePanel > p {
+  margin-bottom: 0.6rem;
+}
+
+.sharePanel > button {
+  width: 100%;
+  border-color: rgba(192, 221, 245, 0.16);
+}
+
+.sharePanel > button:nth-of-type(n + 2) {
+  background: rgba(244, 248, 252, 0.04);
+  color: #f4f8fc;
+}
+
+.sharePanel small {
+  margin-top: 0.35rem;
+  color: #718499;
+  font-size: 0.56rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.manualCopy {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  color: #aebed0;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.manualCopy textarea {
+  width: 100%;
+  min-height: 3.2rem;
+  resize: vertical;
+  padding: 0.7rem;
+  border: 1px solid rgba(103, 220, 255, 0.32);
+  border-radius: 0.65rem;
+  background: rgba(1, 7, 14, 0.9);
+  color: #e8f3fc;
+  font: 0.62rem/1.45 var(--font-body);
+}
+
+.toast {
+  position: absolute;
+  z-index: 90;
+  bottom: 1.2rem;
+  left: 50%;
+  max-width: min(28rem, calc(100% - 2rem));
+  padding: 0.62rem 0.9rem;
+  border: 1px solid rgba(199, 226, 248, 0.2);
+  border-radius: 999px;
+  background: rgba(5, 14, 27, 0.94);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+  color: #dce9f5;
+  font-size: 0.67rem;
+  font-weight: 700;
+  transform: translateX(-50%);
+}
+
+.srOnly {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: 0 !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 1120px) {
+  .tourHeader {
+    grid-template-columns: minmax(12rem, 1fr) auto;
+  }
+
+  .sceneIdentity {
+    display: none;
+  }
+
+  .sceneRail {
+    width: 20rem;
+  }
+
+  .desktopMap {
+    display: none;
+  }
+
+  .lookControls {
+    left: calc((100% - 20rem) / 2);
+  }
+
+  .tourActions button span {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .tourDialog {
+    grid-template-rows: 4rem minmax(0, 1fr);
+  }
+
+  .tourHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    padding: 0.48rem 0.55rem;
+  }
+
+  .tourBrand {
+    gap: 0.45rem;
+  }
+
+  .tourBrand > span :global(.brand-mark__word) {
+    display: none;
+  }
+
+  .tourBrand > div {
+    padding-left: 0.55rem;
+  }
+
+  .tourBrand p {
+    font-size: 0.48rem;
+  }
+
+  .tourBrand h1 {
+    max-width: 8rem;
+    font-size: 0.72rem;
+  }
+
+  .tourActions {
+    gap: 0.25rem;
+  }
+
+  .tourActions button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0.45rem;
+  }
+
+  .tourActions button:nth-child(2),
+  .tourActions button:nth-child(4) {
+    display: none;
+  }
+
+  .tourActions .closeTour {
+    margin-left: 0;
+  }
+
+  .viewportMeta {
+    top: 0.65rem;
+    left: 0.65rem;
+  }
+
+  .viewportMeta span {
+    min-height: 1.75rem;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.52rem;
+  }
+
+  .viewportMeta span:last-child {
+    display: none;
+  }
+
+  .fallbackNotice {
+    top: 3rem;
+  }
+
+  .tourTips {
+    width: calc(100% - 1.25rem);
+    padding: 1.1rem;
+  }
+
+  .tourTips h2 {
+    font-size: 1.45rem;
+  }
+
+  .tourTips > div {
+    gap: 0.4rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .tourTips > div span {
+    font-size: 0.68rem;
+  }
+
+  .sceneRail {
+    top: auto;
+    right: 0.55rem;
+    bottom: 4.55rem;
+    left: 0.55rem;
+    width: auto;
+    max-height: min(18rem, 36dvh);
+    border-radius: 0.9rem;
+  }
+
+  .sceneRail:has(.productPanel),
+  .sceneRail:has(.infoPanel) {
+    max-height: min(38rem, 66dvh);
+  }
+
+  .sceneOverview,
+  .infoPanel,
+  .productPanel {
+    min-height: auto;
+    padding: 0.85rem;
+  }
+
+  .sceneOverview > p:first-child,
+  .sceneOverview > p:nth-child(3),
+  .sceneOverview > h2,
+  .sceneFacts,
+  .openMapButton {
+    display: none;
+  }
+
+  .pointList {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .pointList > div {
+    padding-bottom: 0.35rem;
+  }
+
+  .pointList > button {
+    min-height: 3.25rem;
+  }
+
+  .desktopMap {
+    display: none;
+  }
+
+  .lookControls {
+    right: 0.55rem;
+    bottom: 0.55rem;
+    left: 0.55rem;
+    justify-content: center;
+    transform: none;
+  }
+
+  .spatialHotspot small {
+    display: none;
+  }
+
+  .overlayScrim {
+    align-items: end;
+    padding: 0.55rem;
+  }
+
+  .overlayPanel {
+    width: 100%;
+    max-height: min(45rem, calc(100dvh - 5rem));
+    border-radius: 1rem;
+  }
+
+  .helpPanel > div {
+    grid-template-columns: 1fr;
+  }
+
+  .helpPanel article {
+    display: grid;
+    align-items: start;
+    grid-template-columns: 1.7rem 1fr;
+    column-gap: 0.45rem;
+  }
+
+  .helpPanel article h3,
+  .helpPanel article p {
+    grid-column: 2;
+  }
+
+  .helpPanel h3 {
+    margin-top: 0;
+  }
+
+  .productStage {
+    height: 12rem;
+  }
+}
+
+@media (max-width: 410px) {
+  .tourBrand > div {
+    max-width: 7rem;
+  }
+
+  .sceneRail {
+    max-height: 33dvh;
+  }
+
+  .lookControls button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .lookControls > div button:first-child,
+  .lookControls > div button:last-child {
+    display: none;
+  }
+
+  .productControls {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingState span,
+  .spatialHotspot::after {
+    animation: none;
+  }
+
+  .spatialHotspot small,
+  .tourActions button,
+  .panelTopline button {
+    transition: none;
+  }
+}

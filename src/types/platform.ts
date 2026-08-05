@@ -4,7 +4,7 @@ export type ExperienceIndustry =
   | "Hospitality"
   | "Art";
 
-export type DeviceSupport = "Web" | "Mobile" | "VR";
+export type DeviceSupport = "Web" | "Mobile" | "Tablet";
 
 export type HotspotPosition = {
   x: number;

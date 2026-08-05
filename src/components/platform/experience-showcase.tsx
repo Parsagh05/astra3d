@@ -4,6 +4,7 @@ import Image from "next/image";
 import {
   ArrowUpRight,
   MonitorSmartphone,
+  Move3D,
   MousePointer2,
 } from "lucide-react";
 import {
@@ -15,6 +16,7 @@ import {
 } from "react";
 
 import type { Experience } from "@/types/platform";
+import { TourTrigger } from "@/components/tour";
 
 import styles from "./platform-sections.module.css";
 
@@ -163,8 +165,19 @@ export function ExperienceShowcase({
 
           <div className={styles.sceneStatus}>
             <span className={styles.liveDot} aria-hidden="true" />
-            Interactive preview
+            {selectedExperience.id === "retail"
+              ? "Walkable 360 demo"
+              : "Interactive concept preview"}
           </div>
+
+          {selectedExperience.id === "retail" ? (
+            <div className={styles.liveTourLaunch}>
+              <span>3 rooms · 12 interactive points</span>
+              <TourTrigger>
+                <Move3D aria-hidden="true" /> Enter live 360° tour
+              </TourTrigger>
+            </div>
+          ) : null}
 
           {selectedExperience.hotspots.map((hotspot, index) => {
             const isActive = hotspot.id === activeHotspot.id;

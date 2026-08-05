@@ -5,34 +5,37 @@ import { PlatformSections } from "@/components/platform";
 import { SeoStructuredData } from "@/components/seo-structured-data";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { TourProvider } from "@/components/tour";
 
 export default function HomePage() {
   return (
     <>
       <SeoStructuredData />
       <DemoRequestProvider>
-        <div className="site-frame">
-          <a className="skip-link" href="#main-content">
-            Skip to content
-          </a>
-          <div className="ambient-grid" aria-hidden="true" />
-          <SiteHeader />
-          <main id="main-content">
-            <Hero />
-            <CapabilityRail />
-            <PlatformSections />
+        <TourProvider>
+          <div className="site-frame">
+            <a className="skip-link" href="#main-content">
+              Skip to content
+            </a>
+            <div className="ambient-grid" aria-hidden="true" />
+            <SiteHeader />
+            <main id="main-content">
+              <Hero />
+              <CapabilityRail />
+              <PlatformSections />
 
-            <section className="closing-shell section-shell" id="contact">
-              <p className="eyebrow">The next dimension is ready</p>
-              <h2>Your next storefront doesn&apos;t need walls.</h2>
-              <DemoTrigger className="button">
-                Start a conversation
-                <ArrowIcon />
-              </DemoTrigger>
-            </section>
-          </main>
-          <SiteFooter />
-        </div>
+              <section className="closing-shell section-shell" id="contact">
+                <p className="eyebrow">The next dimension is ready</p>
+                <h2>Your next storefront doesn&apos;t need walls.</h2>
+                <DemoTrigger className="button">
+                  Start a conversation
+                  <ArrowIcon />
+                </DemoTrigger>
+              </section>
+            </main>
+            <SiteFooter />
+          </div>
+        </TourProvider>
       </DemoRequestProvider>
     </>
   );

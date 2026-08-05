@@ -127,6 +127,23 @@ function useDocumentVisibility() {
   );
 }
 
+function subscribeToTourState(onStoreChange: () => void) {
+  window.addEventListener("astra3d:tour-state", onStoreChange);
+  return () => window.removeEventListener("astra3d:tour-state", onStoreChange);
+}
+
+function getTourInactive() {
+  return document.body.dataset.tourOpen !== "true";
+}
+
+function useTourInactive() {
+  return useSyncExternalStore(
+    subscribeToTourState,
+    getTourInactive,
+    getServerSnapshot,
+  );
+}
+
 function useViewportActivity(target: RefObject<HTMLDivElement | null>) {
   const [isVisible, setIsVisible] = useState(false);
   const [hasEntered, setHasEntered] = useState(false);
@@ -217,6 +234,7 @@ export function HeroCanvas() {
   const prefersReducedData = useMediaQuery("(prefers-reduced-data: reduce)");
   const isCompact = useMediaQuery("(max-width: 720px)");
   const documentIsVisible = useDocumentVisibility();
+  const tourIsInactive = useTourInactive();
   const { hasEntered, isVisible } = useViewportActivity(containerRef);
   const savesData =
     typeof navigator !== "undefined" &&
@@ -251,7 +269,7 @@ export function HeroCanvas() {
       {canRender && hasEntered ? (
         <WebGLErrorBoundary onError={handleFailure}>
           <HeroScene
-            active={isVisible && documentIsVisible}
+            active={isVisible && documentIsVisible && tourIsInactive}
             compact={isCompact}
             onFailure={handleFailure}
             onReady={handleReady}

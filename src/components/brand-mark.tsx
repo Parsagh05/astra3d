@@ -4,7 +4,7 @@ type BrandMarkProps = {
 
 export function BrandMark({ compact = false }: BrandMarkProps) {
   return (
-    <span className="brand-mark" aria-label="Astra3D">
+    <span className="brand-mark" role="img" aria-label="Astra3D">
       <svg
         className="brand-mark__symbol"
         viewBox="0 0 42 42"

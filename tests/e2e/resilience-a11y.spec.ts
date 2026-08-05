@@ -90,8 +90,8 @@ test("landing page and demo dialog have no serious accessibility violations", as
   expect(landingViolations).toEqual([]);
 
   await page
-    .locator(".hero__actions")
-    .getByRole("button", { name: "Book a demo" })
+    .locator("#contact")
+    .getByRole("button", { name: "Start a conversation" })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
 

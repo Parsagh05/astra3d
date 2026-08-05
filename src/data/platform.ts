@@ -18,7 +18,7 @@ export const experiences = [
     imageAlt:
       "Futuristic fashion boutique with illuminated displays and sculptural fixtures",
     accent: "#65e8ff",
-    deviceSupport: ["Web", "Mobile", "VR"],
+    deviceSupport: ["Web", "Mobile", "Tablet"],
     hotspots: [
       {
         id: "retail-collection",
@@ -59,7 +59,7 @@ export const experiences = [
     imageAlt:
       "Contemporary luxury residence overlooking a city through panoramic windows",
     accent: "#d4b483",
-    deviceSupport: ["Web", "Mobile", "VR"],
+    deviceSupport: ["Web", "Mobile", "Tablet"],
     hotspots: [
       {
         id: "estate-materials",
@@ -100,7 +100,7 @@ export const experiences = [
     imageAlt:
       "Cinematic hotel lobby with warm lighting, reflective stone, and lounge seating",
     accent: "#ffcb8f",
-    deviceSupport: ["Web", "Mobile", "VR"],
+    deviceSupport: ["Web", "Mobile", "Tablet"],
     hotspots: [
       {
         id: "hospitality-concierge",
@@ -141,7 +141,7 @@ export const experiences = [
     imageAlt:
       "Immersive digital art gallery with luminous installations in a dark exhibition space",
     accent: "#a796ff",
-    deviceSupport: ["Web", "Mobile", "VR"],
+    deviceSupport: ["Web", "Mobile", "Tablet"],
     hotspots: [
       {
         id: "art-curator",
@@ -240,10 +240,10 @@ export const capabilities = [
     eyebrow: "Responsive by design",
     title: "One world. Any screen.",
     description:
-      "Create once for web, mobile, and immersive displays with controls that fit each context.",
+      "Create once for desktop, mobile, and tablet browsers with controls that fit each screen.",
     icon: "devices",
     layout: "standard",
-    signal: "Web · Mobile · VR",
+    signal: "Web · Mobile · Tablet",
   },
   {
     id: "branding",

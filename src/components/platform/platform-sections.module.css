@@ -231,6 +231,62 @@
   box-shadow: 0 0 0.85rem rgba(115, 245, 191, 0.75);
 }
 
+.liveTourLaunch {
+  position: absolute;
+  z-index: 5;
+  top: 1.25rem;
+  right: 1.25rem;
+  display: grid;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.liveTourLaunch > span {
+  padding: 0.32rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(3, 10, 19, 0.68);
+  backdrop-filter: blur(12px);
+  color: rgba(228, 239, 249, 0.78);
+  font-size: 0.55rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.liveTourLaunch button {
+  display: inline-flex;
+  min-height: 2.8rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid rgba(142, 233, 255, 0.55);
+  border-radius: 999px;
+  background: rgba(5, 15, 27, 0.85);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+  color: #eaf8ff;
+  cursor: pointer;
+  font-size: 0.67rem;
+  font-weight: 800;
+  backdrop-filter: blur(16px);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.liveTourLaunch button:hover {
+  border-color: #8ee9ff;
+  background: rgba(25, 88, 119, 0.8);
+  transform: translateY(-2px);
+}
+
+.liveTourLaunch svg {
+  width: 1rem;
+  height: 1rem;
+  color: #8ee9ff;
+}
+
 .sceneCaption {
   right: 1.4rem;
   bottom: 1.3rem;
@@ -1212,6 +1268,19 @@
   .sceneStatus {
     top: 1rem;
     left: 1rem;
+  }
+
+  .liveTourLaunch {
+    top: auto;
+    right: 1rem;
+    bottom: 4.2rem;
+    left: 1rem;
+    align-items: center;
+    grid-template-columns: 1fr auto;
+  }
+
+  .liveTourLaunch > span {
+    justify-self: start;
   }
 
   .sceneCaption {

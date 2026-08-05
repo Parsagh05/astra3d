@@ -6,9 +6,9 @@ import "@fontsource-variable/space-grotesk";
 import "./globals.css";
 
 const siteUrl = "https://astra3d.com";
-const siteTitle = "Astra3D — Immersive Spatial Commerce";
+const siteTitle = "Astra3D — Interactive 360° Commerce Tour";
 const siteDescription =
-  "Build and explore immersive 3D experiences for digital commerce, real estate, hospitality, and art—directly in the browser.";
+  "Explore a functional three-room 360° retail flagship with spatial navigation, interactive hotspots, a floor plan, and local product previews—directly in the browser.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
         url: "/images/og-cover.webp",
         width: 1200,
         height: 630,
-        alt: "A cinematic virtual retail environment created for Astra3D",
+        alt: "Cinematic retail environment used in the Astra3D interactive flagship demonstration",
       },
     ],
   },

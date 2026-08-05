@@ -1,5 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, Box, Orbit } from "lucide-react";
-import { DemoTrigger } from "@/components/demo-request";
+import { TourTrigger } from "@/components/tour";
 import { HeroCanvas } from "./hero-canvas";
 
 export function Hero() {
@@ -16,24 +16,24 @@ export function Hero() {
         </h1>
         <p className="hero__lede">
           Create, publish, and measure immersive stores and spaces that move
-          seamlessly across web, mobile, and VR.
+          seamlessly across desktop, mobile, and tablet browsers.
         </p>
         <div className="hero__actions">
-          <a className="button" href="#experiences">
+          <TourTrigger className="button">
+            Enter live tour
+            <ArrowUpRight aria-hidden="true" />
+          </TourTrigger>
+          <a className="button button--ghost" href="#experiences">
             Explore experiences
             <ArrowDownRight aria-hidden="true" />
           </a>
-          <DemoTrigger className="button button--ghost">
-            Book a demo
-            <ArrowUpRight aria-hidden="true" />
-          </DemoTrigger>
         </div>
         <div className="hero__signal" aria-label="Platform availability">
           <span>
-            <Box aria-hidden="true" /> No-code builder
+            <Box aria-hidden="true" /> 3-room live flagship
           </span>
           <span>
-            <Orbit aria-hidden="true" /> Web · Mobile · VR
+            <Orbit aria-hidden="true" /> Web · Mobile · Tablet
           </span>
         </div>
       </div>

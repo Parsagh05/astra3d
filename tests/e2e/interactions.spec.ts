@@ -43,8 +43,8 @@ test("demo request validates locally, succeeds, and restores focus on Escape", a
   await page.goto("/");
 
   const trigger = page
-    .locator(".hero__actions")
-    .getByRole("button", { name: "Book a demo" });
+    .locator("#contact")
+    .getByRole("button", { name: "Start a conversation" });
   await trigger.click();
 
   const dialog = page.getByRole("dialog");

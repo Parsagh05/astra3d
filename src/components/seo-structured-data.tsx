@@ -6,8 +6,18 @@ const structuredData = {
   operatingSystem: "Web browser",
   url: "https://astra3d.com",
   description:
-    "A platform for creating immersive 3D experiences for digital commerce, real estate, hospitality, and art.",
+    "An original browser-based spatial commerce demonstration with a navigable three-room 360-degree flagship, interactive hotspots, a floor plan, and local product previews.",
   image: "https://astra3d.com/images/og-cover.webp",
+  browserRequirements:
+    "Requires JavaScript. WebGL provides the enhanced panorama and product views; accessible static fallbacks are included.",
+  featureList: [
+    "Three linked 360-degree retail scenes",
+    "Pointer, touch, and keyboard panorama controls",
+    "Navigation, information, and product hotspots",
+    "Interactive floor plan",
+    "Local demonstration product viewer and bag",
+    "Shareable scene and hotspot links",
+  ],
 };
 
 export function SeoStructuredData() {
