@@ -837,7 +837,7 @@ export function ImmersiveTour({
             onWheel={panoramaFallback ? undefined : handleWheel}
           >
             <PanoramaCanvas
-              active
+              active={!showTips}
               fov={view.fov}
               pitch={view.pitch}
               yaw={view.yaw}

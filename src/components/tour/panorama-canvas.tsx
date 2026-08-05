@@ -175,6 +175,7 @@ export function PanoramaCanvas({
     !reducedData &&
     !savesData &&
     failedSrc !== src;
+  const fallback = active && !canRender;
   const ready = readySrc === src;
   const resolvedFov = fov ?? fieldOfView ?? 75;
 
@@ -183,8 +184,8 @@ export function PanoramaCanvas({
   }, [active, onVisibilityChange, visible]);
 
   useEffect(() => {
-    onFallbackChange?.(!canRender);
-  }, [canRender, onFallbackChange, src]);
+    onFallbackChange?.(fallback);
+  }, [fallback, onFallbackChange, src]);
 
   const handleFailure = useCallback(() => {
     setFailedSrc(src);
@@ -201,7 +202,7 @@ export function PanoramaCanvas({
       ref={rootRef}
       className={className}
       data-panorama-ready={canRender && ready ? "true" : "false"}
-      data-panorama-fallback={!canRender ? "true" : "false"}
+      data-panorama-fallback={fallback ? "true" : "false"}
       style={{ height: "100%", position: "relative", width: "100%", ...style }}
     >
       <Image
