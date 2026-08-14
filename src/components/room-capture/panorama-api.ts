@@ -20,6 +20,7 @@ type PanoramaErrorPayload = {
 export type ProcessedPanorama = {
   panorama: Blob;
   quality: PanoramaQualityReport;
+  projectId: string;
 };
 
 export class PanoramaUploadError extends Error {
@@ -47,8 +48,9 @@ export function decodeCaptureDataUrl(dataUrl: string) {
   return new Blob([bytes], { type: match[1].toLowerCase() });
 }
 
-export function createPanoramaUpload(frames: readonly CapturedFrame[]) {
+export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName = "My room") {
   const formData = new FormData();
+  formData.append("room-name", roomName);
   for (const frame of [...frames].sort((a, b) => a.sequence - b.sequence)) {
     const image = decodeCaptureDataUrl(frame.dataUrl);
     const extension = image.type === "image/png"
@@ -101,7 +103,7 @@ function parseWarnings(value: string | null) {
 function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
   const retakeHeader = request.getResponseHeader("X-Astra3D-Retakes");
   return {
-    method: "opencv-sift-cylindrical-v2",
+    method: "opencv-sift-spherical-v3",
     alignmentScore: numberHeader(request, "X-Astra3D-Alignment", 0),
     coverage: numberHeader(request, "X-Astra3D-Coverage", 0),
     fallbackPairs: numberHeader(request, "X-Astra3D-Fallback-Pairs", 0),
@@ -115,13 +117,14 @@ function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
 
 export function processPanoramaOnServer(
   frames: readonly CapturedFrame[],
+  roomName: string,
   onUpdate: (update: PanoramaProcessingUpdate) => void,
 ) {
   return new Promise<ProcessedPanorama>((resolve, reject) => {
     let formData: FormData;
     try {
       onUpdate({ phase: "preparing", progress: 6 });
-      formData = createPanoramaUpload(frames);
+      formData = createPanoramaUpload(frames, roomName);
     } catch (error) {
       reject(error);
       return;
@@ -152,8 +155,13 @@ export function processPanoramaOnServer(
     request.addEventListener("load", () => {
       const response = request.response as Blob;
       if (request.status >= 200 && request.status < 300 && response.type === "image/jpeg") {
+        const projectId = request.getResponseHeader("X-Astra3D-Project-Id");
+        if (!projectId) {
+          reject(new Error("The laptop returned a panorama without a shared project ID."));
+          return;
+        }
         onUpdate({ phase: "receiving", progress: 100 });
-        resolve({ panorama: response, quality: readQualityReport(request) });
+        resolve({ panorama: response, quality: readQualityReport(request), projectId });
         return;
       }
 

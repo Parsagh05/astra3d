@@ -26,7 +26,7 @@ await sharp({
 
 await writeFile(report, JSON.stringify({
   ok: true,
-  method: "opencv-sift-cylindrical-v2",
+  method: "opencv-sift-spherical-v3",
   alignmentScore: 0.875,
   matchedPairs: 21,
   fallbackPairs: 3,

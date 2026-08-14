@@ -28,5 +28,6 @@ next-env.d.ts
 
 # temporary generated files
 /tmp/
+/.astra3d-data/
 __pycache__/
 *.py[cod]

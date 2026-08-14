@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import type { CapturedFrame, GeneratedRoomRecord } from "@/types/capture";
+import type { SharedRoomProject } from "@/types/capture";
 
 import {
   buildCaptureSlots,
@@ -30,6 +31,12 @@ import {
   TOTAL_CAPTURE_SLOTS,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
+import { SharedProjectLibrary } from "./shared-project-library";
+import {
+  fetchSharedProjects,
+  loadSharedProject,
+  syncSavedRoom,
+} from "./shared-projects-api";
 import {
   PanoramaUploadError,
   processPanoramaOnServer,
@@ -96,6 +103,10 @@ export function RoomStudio() {
   const [frames, setFrames] = useState<CapturedFrame[]>([]);
   const [room, setRoom] = useState<GeneratedRoomRecord | null>(null);
   const [loadingSavedRoom, setLoadingSavedRoom] = useState(true);
+  const [sharedProjects, setSharedProjects] = useState<SharedRoomProject[]>([]);
+  const [loadingSharedProjects, setLoadingSharedProjects] = useState(true);
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [sharedProjectsError, setSharedProjectsError] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [processingPhase, setProcessingPhase] = useState<PanoramaProcessingPhase>("preparing");
   const [error, setError] = useState<string | null>(null);
@@ -143,11 +154,42 @@ export function RoomStudio() {
     if (videoRef.current) videoRef.current.srcObject = null;
   }, [clearAutoTimers]);
 
+  const refreshSharedProjects = useCallback(async () => {
+    setLoadingSharedProjects(true);
+    setSharedProjectsError(null);
+    try {
+      setSharedProjects(await fetchSharedProjects());
+    } catch (libraryError) {
+      setSharedProjectsError(
+        libraryError instanceof Error ? libraryError.message : "The shared laptop project library is unavailable.",
+      );
+    } finally {
+      setLoadingSharedProjects(false);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     loadGeneratedRoom()
-      .then((savedRoom) => {
-        if (active && savedRoom) setRoom(savedRoom);
+      .then(async (savedRoom) => {
+        if (!active || !savedRoom) return;
+        setRoom(savedRoom);
+        if (!savedRoom.serverProjectId) {
+          try {
+            const project = await syncSavedRoom(savedRoom);
+            if (!active || !project) return;
+            const synchronizedRoom = {
+              ...savedRoom,
+              serverProjectId: project.id,
+              hasSourceFrames: project.hasSourceFrames,
+            };
+            setRoom(synchronizedRoom);
+            await saveGeneratedRoom(synchronizedRoom);
+            await refreshSharedProjects();
+          } catch {
+            // The local panorama remains available even if the laptop is temporarily unreachable.
+          }
+        }
       })
       .catch(() => undefined)
       .finally(() => {
@@ -156,7 +198,12 @@ export function RoomStudio() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [refreshSharedProjects]);
+
+  useEffect(() => {
+    const request = window.setTimeout(() => void refreshSharedProjects(), 0);
+    return () => window.clearTimeout(request);
+  }, [refreshSharedProjects]);
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -554,6 +601,23 @@ export function RoomStudio() {
     if (previous) void beginRetake(previous.sequence);
   };
 
+  const openSharedProject = async (project: SharedRoomProject) => {
+    setOpeningProjectId(project.id);
+    setSharedProjectsError(null);
+    try {
+      const sharedRoom = await loadSharedProject(project);
+      setRoom(sharedRoom);
+      await saveGeneratedRoom(sharedRoom);
+      setStage("result");
+    } catch (projectError) {
+      setSharedProjectsError(
+        projectError instanceof Error ? projectError.message : "The shared project could not be opened.",
+      );
+    } finally {
+      setOpeningProjectId(null);
+    }
+  };
+
   const assembleRoom = async (capturedFrames: readonly CapturedFrame[]) => {
     if (capturedFrames.length !== TOTAL_CAPTURE_SLOTS) {
       setError("Complete eye level, +35°, and −35° before finalizing the room.");
@@ -566,7 +630,7 @@ export function RoomStudio() {
     stopCamera();
 
     try {
-      const processed = await processPanoramaOnServer(capturedFrames, (update) => {
+      const processed = await processPanoramaOnServer(capturedFrames, roomName, (update) => {
         setProcessingPhase(update.phase);
         setProcessingProgress(update.progress);
       });
@@ -578,6 +642,8 @@ export function RoomStudio() {
         panorama: processed.panorama,
         processor: "laptop",
         quality: processed.quality,
+        serverProjectId: processed.projectId,
+        hasSourceFrames: true,
       };
       setRoom(generatedRoom);
       setFrames([]);
@@ -587,6 +653,7 @@ export function RoomStudio() {
         setError("The panorama is ready, but this browser did not allow persistent local storage.");
       }
       setStage("result");
+      await refreshSharedProjects();
     } catch (processingError) {
       setStage("capture");
       if (processingError instanceof PanoramaUploadError && processingError.retakeSequences.length > 0) {
@@ -702,8 +769,17 @@ export function RoomStudio() {
 
             <div className={styles.privacyBanner}>
               <LockKeyhole aria-hidden="true" />
-              <div><strong>Private laptop processing</strong><p>Still photos go only to this connected Astra3D server. Its temporary job files are erased immediately after processing and nothing is sent to a cloud service.</p></div>
+              <div><strong>Private shared laptop projects</strong><p>Completed scans and their 24 original photos stay on this laptop so phone and desktop can open the same project. Nothing is sent to a cloud service.</p></div>
             </div>
+
+            {sharedProjectsError ? <p className={styles.libraryError} role="status">{sharedProjectsError}</p> : null}
+            <SharedProjectLibrary
+              projects={sharedProjects}
+              loading={loadingSharedProjects}
+              openingId={openingProjectId}
+              onOpen={(project) => void openSharedProject(project)}
+              onRefresh={() => void refreshSharedProjects()}
+            />
           </section>
         ) : null}
 

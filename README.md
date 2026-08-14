@@ -1,6 +1,6 @@
 # Astra3D — Interactive Spatial Commerce
 
-Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/OpenCV backend, saves the returned result in the phone browser, and opens it in an interactive 360° viewer. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
+Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/OpenCV backend, and saves a shared laptop project that both phone and desktop can open. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
 
 The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
 
@@ -10,7 +10,7 @@ The visual identity, environments, products, and copy were created for this proj
 - A persistent rear-camera preview on a secure origin, with IMU-guided still capture at eight overlapping targets per sweep. The app never records a video.
 - Explicit eye-level, +35°, and −35° passes. Final assembly remains locked until all 24 target photos have been captured.
 - Switchable Automatic and Manual capture, preview-matched zoom, detected ultrawide/rear-lens selection, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress. Real hardware zoom reaches 0.6× when the browser exposes it; the software fallback remains 1.0×–1.4×.
-- Laptop-side 3072×1536 panorama assembly with validated uploads, SIFT overlap alignment, cylindrical projection, exposure compensation, graph-cut seam selection, multiband blending, quality reporting, targeted retake requests, IndexedDB result persistence, and JPG download. Temporary job files remain on the laptop and are erased after every result or error.
+- Laptop-side 3072×1536 panorama assembly with validated uploads, SIFT overlap alignment, spherical projection, exposure compensation, graph-cut seam selection, multiband blending, quality reporting, targeted retake requests, shared project persistence, and JPG download. Successful projects retain their 24 source photographs, manifest, report, and panorama under `.astra3d-data/projects/`.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
 - Automatic static fallback for reduced motion, reduced data, unavailable WebGL, or a lost WebGL context.
@@ -69,6 +69,12 @@ cd C:\platform-tools
 
 If Android asks for pairing first, choose **Pair device with pairing code** and run `.\adb.exe pair PHONE_IP:PAIR_PORT` before `connect`. On the phone, open `http://localhost:3000/studio/` in Chrome and allow camera and motion access. No cable is required after Wireless debugging is connected. A trusted HTTPS URL also works. An ordinary URL such as `http://192.168.x.x:3000` can display the website, but mobile browsers intentionally block this live scanner on insecure LAN HTTP.
 
+### Shared phone and laptop projects
+
+The Node server is the common project store. Every newly completed phone scan is atomically saved under `.astra3d-data/projects/<project-id>/` with its panorama, JSON manifest, quality report, and 24 original encoded captures. Opening `/studio/` on the phone or laptop loads the same server list. The browser still caches the latest opened panorama in IndexedDB for convenience, but IndexedDB is no longer the durable source of truth.
+
+On first launch after this upgrade, a final panorama already cached on the phone is migrated to the laptop library. Its original 24 captures cannot be recreated, so the library labels it **Panorama only · migrated**. This local release has no authentication: only expose the Node server to devices you trust, and back up `.astra3d-data/` if the projects matter.
+
 ## Commands
 
 | Command | Purpose |
@@ -125,6 +131,7 @@ src/
     └── tour.ts             Panorama, scene, hotspot, and product models
 tests/e2e/                  Playwright interaction and accessibility coverage
 public/images/              Optimized environments and Open Graph artwork
+.astra3d-data/              Ignored local project library created at runtime
 ```
 
 Edit `src/data/platform.ts` to change industries, hotspots, capabilities, workflow steps, or demonstrative dashboard values. Each `Experience` points to a local image and supplies positioned hotspots as percentages so the showcase remains responsive.
@@ -143,10 +150,10 @@ The share controls create a URL for the currently hosted build and, where availa
 
 This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
 
-- The capture studio takes 24 individual stills from a persistent live camera stream and uploads them only to the connected Astra3D Node server. OpenCV matches neighboring SIFT features, cylindrically projects the views, compensates exposure, selects low-error seams, and multiband blends the result. Temporary job files are created only in the operating system temp directory and removed after success or failure. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
+- The capture studio takes 24 individual stills from a persistent live camera stream and uploads them only to the connected Astra3D Node server. OpenCV matches neighboring SIFT features, rejects geometric outliers, closes 360° drift, spherically projects the views, compensates exposure, selects low-error seams, and multiband blends the result. Temporary processing files are removed after success or failure; successful project sources are deliberately retained in the ignored laptop library. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
 - The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
 - Ultrawide access depends on the phone and browser exposing either a hardware zoom range below 1× or multiple rear `videoinput` devices. When neither is available, Astra3D cannot reproduce a real 0.6× field of view and keeps the honest 1× minimum.
-- IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.
+- IndexedDB caches only the latest opened panorama in each browser profile. The shared laptop project store is durable across browser/device changes, but it is still local data and should be backed up separately.
 - The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
 - Control Center metrics, journey paths, engagement totals, and inventory rows are illustrative demo data. No visitor behavior is collected or stored.
 - Product prices and availability are fictional. Finish selection and the demo bag exist only in local React state and do not reserve stock, create a cart, place an order, or charge a payment method.

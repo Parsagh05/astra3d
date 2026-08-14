@@ -47,6 +47,38 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("opens the same laptop project library from phone and desktop", async ({ page }) => {
+  const projectId = "11111111-1111-4111-8111-111111111111";
+  const panorama = await sharp({
+    create: { width: 64, height: 32, channels: 3, background: { r: 22, g: 88, b: 122 } },
+  }).jpeg().toBuffer();
+  await page.route("**/api/projects", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        projects: [{
+          id: projectId,
+          name: "Common living room",
+          createdAt: "2026-08-15T00:00:00.000Z",
+          photoCount: 24,
+          hasSourceFrames: true,
+          processor: "laptop",
+        }],
+      }),
+    });
+  });
+  await page.route(`**/api/projects/${projectId}/panorama`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "image/jpeg", body: panorama });
+  });
+
+  await page.goto("/studio/");
+  await expect(page.getByRole("heading", { name: "Phone and laptop projects" })).toBeVisible();
+  await expect(page.getByText("24 source photos saved")).toBeVisible();
+  await page.getByRole("button", { name: /Common living room/ }).click();
+  await expect(page.getByRole("heading", { name: "Common living room" })).toBeVisible();
+  await expect(page.getByText("Shared on laptop · 24 source photos saved")).toBeVisible();
+});
+
 test("offers a secure guided phone capture route without horizontal overflow", async ({ page }) => {
   await page.goto("/studio/");
 
@@ -56,7 +88,7 @@ test("offers a secure guided phone capture route without horizontal overflow", a
       name: "Scan once. Look around forever.",
     }),
   ).toBeVisible();
-  await expect(page.getByText("Private laptop processing")).toBeVisible();
+  await expect(page.getByText("Private shared laptop projects")).toBeVisible();
 
   const captureAccessibility = await new AxeBuilder({ page }).analyze();
   expect(
@@ -375,8 +407,9 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
         "X-Astra3D-Coverage": "0.98",
         "X-Astra3D-Fallback-Pairs": "3",
         "X-Astra3D-Matched-Pairs": "21",
-        "X-Astra3D-Method": "opencv-sift-cylindrical-v2",
+        "X-Astra3D-Method": "opencv-sift-spherical-v3",
         "X-Astra3D-Processor": "laptop-opencv",
+        "X-Astra3D-Project-Id": "11111111-1111-4111-8111-111111111111",
         "X-Astra3D-Retakes": "",
         "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(["Three overlaps used guided placement."])),
       },
@@ -408,5 +441,5 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
   await expect(page.getByText("21 / 24")).toBeVisible();
   await expect(page.getByText("88%")).toBeVisible();
   await expect(page.getByText("98%")).toBeVisible();
-  await expect(page.getByText("Private · laptop processed")).toBeVisible();
+  await expect(page.getByText("Shared on laptop · 24 source photos saved")).toBeVisible();
 });

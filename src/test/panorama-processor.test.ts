@@ -45,7 +45,7 @@ describe("laptop panorama processor", () => {
 
     expect(metadata).toMatchObject({ format: "jpeg", width: 640, height: 320 });
     expect(report).toMatchObject({
-      method: "opencv-sift-cylindrical-v2",
+      method: "opencv-sift-spherical-v3",
       alignmentScore: 0.875,
       matchedPairs: 21,
       fallbackPairs: 3,

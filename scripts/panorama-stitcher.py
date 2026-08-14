@@ -468,7 +468,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         )
     return {
         "ok": True,
-        "method": "opencv-sift-cylindrical-v2",
+        "method": "opencv-sift-spherical-v3",
         "alignmentScore": round(alignment_score, 3),
         "matchedPairs": matched_pairs,
         "fallbackPairs": fallback_pairs,

@@ -21,6 +21,7 @@ export type ServerPanoramaFrame = {
   column: number;
   image: Buffer;
   zoom?: number;
+  mimeType?: "image/jpeg" | "image/png" | "image/webp";
 };
 
 type PanoramaOptions = {

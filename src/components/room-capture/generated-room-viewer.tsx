@@ -103,7 +103,9 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
             Drag or swipe to look around. This 2:1 panorama was assembled {room.processor === "laptop" ? "by your connected laptop" : "on this device"} from {room.photoCount} automatically selected views.
           </p>
         </div>
-        <span className={styles.localBadge}>Private · {room.processor === "laptop" ? "laptop processed" : "on device"}</span>
+        <span className={styles.localBadge}>
+          {room.serverProjectId ? "Shared on laptop" : "Private"} · {room.hasSourceFrames ? "24 source photos saved" : room.processor === "laptop" ? "laptop processed" : "on device"}
+        </span>
       </div>
 
       <div

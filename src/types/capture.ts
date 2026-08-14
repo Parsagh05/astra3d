@@ -16,7 +16,7 @@ export type CapturedFrame = CaptureSlot & {
 };
 
 export type PanoramaQualityReport = {
-  method: "opencv-sift-cylindrical-v2";
+  method: "opencv-sift-spherical-v3";
   alignmentScore: number;
   matchedPairs: number;
   fallbackPairs: number;
@@ -32,5 +32,17 @@ export type GeneratedRoomRecord = {
   photoCount: number;
   panorama: Blob;
   processor?: "device" | "laptop";
+  quality?: PanoramaQualityReport;
+  serverProjectId?: string;
+  hasSourceFrames?: boolean;
+};
+
+export type SharedRoomProject = {
+  id: string;
+  name: string;
+  createdAt: string;
+  photoCount: number;
+  hasSourceFrames: boolean;
+  processor: "laptop";
   quality?: PanoramaQualityReport;
 };

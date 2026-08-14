@@ -8,6 +8,7 @@ import {
   processRoomPanorama,
   type ServerPanoramaFrame,
 } from "@/server/panorama-processor";
+import { saveCapturedProject } from "@/server/project-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -66,6 +67,8 @@ async function processCaptureRequest(request: Request) {
 
   const frames: ServerPanoramaFrame[] = [];
   let totalBytes = 0;
+  const roomNameValue = formData.get("room-name");
+  const roomName = typeof roomNameValue === "string" ? roomNameValue : "My room";
 
   for (const slot of buildCaptureSlots()) {
     const value = formData.get(`frame-${slot.sequence}`);
@@ -102,11 +105,28 @@ async function processCaptureRequest(request: Request) {
       column: slot.column,
       image: Buffer.from(await value.arrayBuffer()),
       zoom: parseZoom(formData.get(`zoom-${slot.sequence}`)),
+      mimeType: value.type as ServerPanoramaFrame["mimeType"],
     });
   }
 
   try {
     const { panorama, report } = await processRoomPanorama(frames);
+    let project;
+    try {
+      project = await saveCapturedProject({
+        name: roomName,
+        frames,
+        panorama,
+        quality: report,
+      });
+    } catch (error) {
+      console.error("Astra3D project persistence failed", error);
+      return errorResponse(
+        "The panorama was processed but could not be saved to the shared laptop library. Check disk access and try again.",
+        500,
+        "PROJECT_SAVE_FAILED",
+      );
+    }
     return new Response(new Uint8Array(panorama), {
       status: 200,
       headers: {
@@ -121,6 +141,7 @@ async function processCaptureRequest(request: Request) {
         "X-Astra3D-Matched-Pairs": String(report.matchedPairs),
         "X-Astra3D-Method": report.method,
         "X-Astra3D-Processor": "laptop-opencv",
+        "X-Astra3D-Project-Id": project.id,
         "X-Astra3D-Retakes": report.retakeSequences.join(","),
         "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(report.warnings)),
         "X-Astra3D-Width": String(PANORAMA_WIDTH),
