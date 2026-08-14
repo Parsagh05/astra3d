@@ -555,12 +555,20 @@ export function RoomStudio() {
                 </div>
 
                 <div className={styles.directionRing} aria-label="Current rotation coverage">
-                  <div><span style={{ transform: `rotate(${activeSlot?.yaw ?? 360}deg)` }} /></div>
-                  {Array.from({ length: CAPTURE_COLUMNS }, (_, index) => {
-                    const captured = index < currentBandFrames || captureComplete;
-                    const current = index === currentBandFrames && !captureComplete;
-                    return <i key={index} data-captured={captured} data-current={current} style={{ "--index": index } as React.CSSProperties}>{captured ? <Check aria-hidden="true" /> : index + 1}</i>;
-                  })}
+                  <div className={styles.directionDial}>
+                    <div>
+                      <span
+                        style={{
+                          "--direction-angle": `${activeSlot?.yaw ?? 360}deg`,
+                        } as React.CSSProperties}
+                      />
+                    </div>
+                    {Array.from({ length: CAPTURE_COLUMNS }, (_, index) => {
+                      const captured = index < currentBandFrames || captureComplete;
+                      const current = index === currentBandFrames && !captureComplete;
+                      return <i key={index} data-captured={captured} data-current={current} style={{ "--index": index } as React.CSSProperties}>{captured ? <Check aria-hidden="true" /> : index + 1}</i>;
+                    })}
+                  </div>
                   <strong>{activeBand?.label ?? "Complete"}</strong>
                   <small>{activeBand?.instruction ?? "All room angles captured."}</small>
                 </div>

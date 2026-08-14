@@ -69,6 +69,37 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   await expect(page.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
   await expect(page.getByText("0 / 24")).toBeVisible();
 
+  const dialGeometry = await page
+    .locator('[aria-label="Current rotation coverage"] > div')
+    .evaluate((dial) => {
+      const bounds = dial.getBoundingClientRect();
+      const center = {
+        x: bounds.left + bounds.width / 2,
+        y: bounds.top + bounds.height / 2,
+      };
+      const nodes = Array.from(dial.querySelectorAll(":scope > i")).map((node) => {
+        const nodeBounds = node.getBoundingClientRect();
+        return {
+          x: nodeBounds.left + nodeBounds.width / 2,
+          y: nodeBounds.top + nodeBounds.height / 2,
+        };
+      });
+      return {
+        center,
+        centroid: {
+          x: nodes.reduce((sum, node) => sum + node.x, 0) / nodes.length,
+          y: nodes.reduce((sum, node) => sum + node.y, 0) / nodes.length,
+        },
+        radii: nodes.map((node) => Math.hypot(node.x - center.x, node.y - center.y)),
+        nodeCount: nodes.length,
+      };
+    });
+
+  expect(dialGeometry.nodeCount).toBe(8);
+  expect(Math.max(...dialGeometry.radii) - Math.min(...dialGeometry.radii)).toBeLessThan(2);
+  expect(Math.abs(dialGeometry.centroid.x - dialGeometry.center.x)).toBeLessThan(1);
+  expect(Math.abs(dialGeometry.centroid.y - dialGeometry.center.y)).toBeLessThan(1);
+
   const dimensions = await page.evaluate(() => ({
     viewportWidth: window.innerWidth,
     pageWidth: document.documentElement.scrollWidth,

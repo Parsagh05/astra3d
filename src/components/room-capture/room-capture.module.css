@@ -828,55 +828,67 @@
   align-content: center;
   justify-items: center;
   overflow: hidden;
+  padding: 1.5rem 0.75rem;
   border-left: 1px solid rgba(169, 211, 240, 0.12);
   background: linear-gradient(180deg, rgba(15, 34, 57, 0.8), rgba(5, 13, 24, 0.92));
   grid-area: direction;
 }
 
-.directionRing > div {
+.directionDial {
+  --core-size: 9.5rem;
+  --orbit-radius: 6rem;
   position: relative;
-  width: 9.5rem;
-  height: 9.5rem;
+  display: grid;
+  width: 14rem;
+  height: 14rem;
+  place-items: center;
+}
+
+.directionDial > div {
+  position: relative;
+  width: var(--core-size);
+  height: var(--core-size);
   border: 1px solid rgba(103, 220, 255, 0.2);
   border-radius: 50%;
 }
 
-.directionRing > div::before,
-.directionRing > div::after {
+.directionDial > div::before,
+.directionDial > div::after {
   position: absolute;
   border-radius: 50%;
   content: "";
 }
 
-.directionRing > div::before {
+.directionDial > div::before {
   inset: 20%;
   border: 1px dashed rgba(103, 220, 255, 0.25);
 }
 
-.directionRing > div::after {
+.directionDial > div::after {
   inset: 42%;
   background: var(--color-cyan-soft);
   box-shadow: 0 0 1.5rem rgba(56, 182, 255, 0.75);
 }
 
-.directionRing > div span {
+.directionDial > div span {
   position: absolute;
   z-index: 2;
-  top: 0.5rem;
-  left: calc(50% - 0.3rem);
+  bottom: 50%;
+  left: 50%;
   width: 0.6rem;
-  height: 4.3rem;
+  height: calc(var(--core-size) * 0.45);
   border-radius: 999px;
   background: linear-gradient(var(--color-cyan-soft), transparent);
-  transform-origin: 50% calc(100% + 0.45rem);
+  transform: translateX(-50%) rotate(var(--direction-angle));
+  transform-origin: 50% 100%;
   transition: transform 280ms ease;
 }
 
-.directionRing > i {
+.directionDial > i {
   --angle: calc(var(--index) * 45deg);
   position: absolute;
-  top: calc(50% - 7.7rem);
-  left: calc(50% - 0.85rem);
+  top: 50%;
+  left: 50%;
   display: grid;
   width: 1.7rem;
   height: 1.7rem;
@@ -886,28 +898,31 @@
   color: var(--color-muted);
   font-size: 0.62rem;
   font-style: normal;
-  transform: rotate(var(--angle)) translateY(3rem) rotate(calc(var(--angle) * -1));
-  transform-origin: 50% 7.7rem;
+  transform:
+    translate(-50%, -50%)
+    rotate(var(--angle))
+    translateY(calc(0rem - var(--orbit-radius)))
+    rotate(calc(var(--angle) * -1));
 }
 
-.directionRing > i[data-captured="true"] {
+.directionDial > i[data-captured="true"] {
   border-color: rgba(99, 230, 190, 0.5);
   background: rgba(99, 230, 190, 0.12);
   color: #63e6be;
 }
 
-.directionRing > i[data-current="true"] {
+.directionDial > i[data-current="true"] {
   border-color: var(--color-cyan-soft);
   box-shadow: 0 0 1rem rgba(56, 182, 255, 0.4);
   color: white;
 }
 
-.directionRing > i svg {
+.directionDial > i svg {
   width: 0.75rem;
 }
 
 .directionRing > strong {
-  margin-top: 3.4rem;
+  margin-top: 0.35rem;
   font-family: var(--font-display);
   font-size: 0.95rem;
 }
@@ -1475,9 +1490,16 @@
   }
 
   .directionRing {
-    min-height: 15rem;
+    min-height: 18.5rem;
     border-top: 1px solid rgba(169, 211, 240, 0.12);
     border-left: 0;
+  }
+
+  .directionDial {
+    --core-size: 8.75rem;
+    --orbit-radius: 5.5rem;
+    width: 13rem;
+    height: 13rem;
   }
 
   .captureControls {
@@ -1574,7 +1596,7 @@
   .progressTrack span,
   .processingTrack span,
   .bandList i b,
-  .directionRing > div span {
+  .directionDial > div span {
     transition: none;
   }
 }
