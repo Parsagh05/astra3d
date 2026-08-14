@@ -4,7 +4,6 @@ import {
   buildCaptureSlots,
   CAPTURE_COLUMNS,
   getSignedAngleDelta,
-  hasReachedSweepTarget,
   getBandRow,
   getCaptureProgress,
   TOTAL_CAPTURE_SLOTS,
@@ -43,11 +42,8 @@ describe("room capture plan", () => {
     expect(getCaptureProgress(24)).toBe(100);
   });
 
-  it("unwraps IMU headings and advances automatic sweep targets", () => {
+  it("unwraps IMU headings across the compass boundary", () => {
     expect(getSignedAngleDelta(4, 358)).toBe(6);
     expect(getSignedAngleDelta(358, 4)).toBe(-6);
-    expect(hasReachedSweepTarget(44, 1)).toBe(false);
-    expect(hasReachedSweepTarget(45, 1)).toBe(true);
-    expect(hasReachedSweepTarget(-90, 2)).toBe(true);
   });
 });

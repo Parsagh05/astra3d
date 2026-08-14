@@ -1,10 +1,37 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
-const pixelPng = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2oV0AAAAASUVORK5CYII=",
-  "base64",
-);
+async function dispatchOrientation(page: Page, alpha: number, beta: number) {
+  await page.evaluate(({ heading, tilt }) => {
+    const event = new Event("deviceorientation");
+    Object.defineProperties(event, {
+      alpha: { value: heading },
+      beta: { value: tilt },
+    });
+    window.dispatchEvent(event);
+  }, { heading: alpha, tilt: beta });
+}
+
+async function beginGuidedBand(page: Page, buttonName: string, beta: number) {
+  await page.getByRole("button", { name: buttonName }).click();
+  await page.waitForTimeout(2_150);
+  await dispatchOrientation(page, 0, beta);
+  await expect(page.getByText("Target 1 of 8")).toBeVisible({ timeout: 3_500 });
+}
+
+async function holdTarget(page: Page, alpha: number, beta: number) {
+  for (let sample = 0; sample < 9; sample += 1) {
+    await dispatchOrientation(page, alpha, beta);
+    await page.waitForTimeout(90);
+  }
+}
+
+async function completeGuidedBand(page: Page, beta: number, startingTotal: number) {
+  for (let index = 0; index < 8; index += 1) {
+    await holdTarget(page, index * 45, beta);
+    await expect(page.getByText(`${startingTotal + index + 1} / 24`)).toBeVisible();
+  }
+}
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -19,7 +46,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("offers a guided phone capture route without horizontal overflow", async ({ page }) => {
+test("offers a secure guided phone capture route without horizontal overflow", async ({ page }) => {
   await page.goto("/studio/");
 
   await expect(
@@ -38,9 +65,8 @@ test("offers a guided phone capture route without horizontal overflow", async ({
   ).toEqual([]);
 
   await page.getByRole("button", { name: /Start room scan/i }).click();
-  await expect(page.getByText("Live preview blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Record guided video" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Use individual photos instead" })).toBeVisible();
+  await expect(page.getByText("Secure live camera required")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
   await expect(page.getByText("0 / 24")).toBeVisible();
 
   const dimensions = await page.evaluate(() => ({
@@ -50,8 +76,8 @@ test("offers a guided phone capture route without horizontal overflow", async ({
   expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
-test("automatically captures a live sweep from IMU angle changes", async ({ page }) => {
-  test.setTimeout(20_000);
+test("captures live still targets and requires all three tilt bands", async ({ page }) => {
+  test.setTimeout(50_000);
   await page.addInitScript(() => {
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
       configurable: true,
@@ -73,51 +99,49 @@ test("automatically captures a live sweep from IMU angle changes", async ({ page
 
   await page.goto("/studio/");
   await page.getByRole("button", { name: /Start room scan/i }).click();
-  await expect(page.getByRole("button", { name: "Start automatic sweep" })).toBeVisible();
-  await expect.poll(
-    () => page.locator("video").evaluate((video: HTMLVideoElement) => video.videoWidth),
-  ).toBeGreaterThan(0);
+  await expect(page.getByRole("button", { name: "Begin eye-level capture" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Start automatic sweep" }).click();
-  await page.waitForTimeout(2200);
-  await page.evaluate(() => {
-    const event = new Event("deviceorientation");
-    Object.defineProperty(event, "alpha", { value: 0 });
-    window.dispatchEvent(event);
-  });
-  await expect(page.getByText("IMU angle tracking")).toBeVisible({ timeout: 6_000 });
+  await beginGuidedBand(page, "Begin eye-level capture", 90);
+  await completeGuidedBand(page, 90, 0);
+  await expect(page.getByRole("button", { name: "Begin +35° capture" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  for (const alpha of [45, 90, 135, 180, 225, 270, 315]) {
-    await page.evaluate((heading) => {
-      const event = new Event("deviceorientation");
-      Object.defineProperty(event, "alpha", { value: heading });
-      window.dispatchEvent(event);
-    }, alpha);
-    await page.waitForTimeout(60);
-  }
+  await beginGuidedBand(page, "Begin +35° capture", 55);
+  await completeGuidedBand(page, 55, 8);
+  await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await expect(page.getByText("8 / 24")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start next sweep" })).toBeVisible();
+  await beginGuidedBand(page, "Begin −35° capture", 125);
+  await completeGuidedBand(page, 125, 16);
+  await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
+  await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
 });
 
-test("assembles 24 guided images into a locally generated room", async ({ page }, testInfo) => {
+test("assembles the 24 guided stills into a locally generated room", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
-  test.setTimeout(45_000);
+  test.setTimeout(55_000);
+
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 900 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 1200 });
+    HTMLMediaElement.prototype.play = async () => undefined;
+    CanvasRenderingContext2D.prototype.drawImage = () => undefined;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => new MediaStream() },
+    });
+  });
 
   await page.goto("/studio/");
   await page.getByRole("textbox", { name: "Room name" }).fill("Test living room");
   await page.getByRole("button", { name: /Start room scan/i }).click();
-  await expect(page.getByText("Live preview blocked")).toBeVisible();
 
-  const input = page.locator('input[type="file"][accept="image/*"]');
-  for (let index = 0; index < 24; index += 1) {
-    await input.setInputFiles({
-      name: `room-${index + 1}.png`,
-      mimeType: "image/png",
-      buffer: pixelPng,
-    });
-    await expect(page.getByText(`${index + 1} / 24`)).toBeVisible();
-  }
+  await beginGuidedBand(page, "Begin eye-level capture", 90);
+  await completeGuidedBand(page, 90, 0);
+  await beginGuidedBand(page, "Begin +35° capture", 55);
+  await completeGuidedBand(page, 55, 8);
+  await beginGuidedBand(page, "Begin −35° capture", 125);
+  await completeGuidedBand(page, 125, 16);
 
   await page.getByRole("button", { name: /Build my 360/i }).click();
   await expect(page.getByRole("heading", { name: "Test living room" })).toBeVisible({ timeout: 30_000 });
