@@ -211,6 +211,68 @@ test("switches to manual capture, zooms the saved crop, and retakes any captured
   expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
+test("uses real 0.6x hardware zoom and exposes an available ultrawide lens", async ({ page }) => {
+  await page.addInitScript(() => {
+    const cameraState = { deviceId: "main", appliedZoom: 1 };
+    const videoTrack = {
+      getCapabilities: () => ({ zoom: { min: 0.6, max: 4, step: 0.1 } }),
+      getSettings: () => ({ deviceId: cameraState.deviceId, zoom: 1 }),
+      applyConstraints: async (constraints: MediaTrackConstraints) => {
+        const requested = constraints.advanced?.[0] as { zoom?: number } | undefined;
+        cameraState.appliedZoom = requested?.zoom ?? cameraState.appliedZoom;
+        (window as unknown as { __appliedHardwareZoom: number }).__appliedHardwareZoom = cameraState.appliedZoom;
+      },
+    };
+    Object.defineProperty(MediaStream.prototype, "getVideoTracks", {
+      configurable: true,
+      value: () => [videoTrack],
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 900 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 1200 });
+    HTMLMediaElement.prototype.play = async () => undefined;
+    CanvasRenderingContext2D.prototype.drawImage = () => undefined;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async (constraints: MediaStreamConstraints) => {
+          const video = constraints.video as MediaTrackConstraints;
+          const requestedId = video.deviceId as { exact?: string } | undefined;
+          cameraState.deviceId = requestedId?.exact ?? cameraState.deviceId;
+          return new MediaStream();
+        },
+        enumerateDevices: async () => [
+          { deviceId: "main", groupId: "rear", kind: "videoinput", label: "Back Main Camera", toJSON: () => ({}) },
+          { deviceId: "ultra", groupId: "rear", kind: "videoinput", label: "Ultra Wide Camera", toJSON: () => ({}) },
+          { deviceId: "front", groupId: "front", kind: "videoinput", label: "Front Camera", toJSON: () => ({}) },
+        ],
+      },
+    });
+  });
+
+  await page.goto("/studio/");
+  await page.getByRole("button", { name: /Start room scan/i }).click();
+
+  const lensPicker = page.getByLabel("Camera lens");
+  await expect(lensPicker).toBeVisible();
+  await expect(lensPicker.locator("option")).toHaveCount(2);
+  await expect(lensPicker.locator("option").first()).toHaveText("Back Main Camera");
+  await expect(lensPicker.locator("option").last()).toContainText("Ultra");
+  await lensPicker.selectOption("ultra");
+  await expect(lensPicker).toHaveValue("ultra");
+
+  for (let step = 0; step < 4; step += 1) {
+    await page.getByRole("button", { name: "Zoom out" }).click();
+  }
+  await expect(page.locator('[aria-label="Capture zoom"] output')).toContainText("0.6");
+  expect(await page.evaluate(() => (window as unknown as { __appliedHardwareZoom: number }).__appliedHardwareZoom)).toBe(0.6);
+  await expect(page.getByLabel("Rear camera preview")).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+
+  await page.getByRole("button", { name: /^Manual/ }).click();
+  await page.getByRole("button", { name: "Begin eye-level capture" }).click();
+  await page.getByRole("button", { name: "Capture target 1" }).click();
+  await expect(lensPicker).toBeDisabled();
+});
+
 test("assembles the 24 guided stills into a locally generated room", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
   test.setTimeout(55_000);
