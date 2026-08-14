@@ -9,7 +9,7 @@ The visual identity, environments, products, and copy were created for this proj
 - A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point.
 - A persistent rear-camera preview on a secure origin, with IMU-guided still capture at eight overlapping targets per sweep. The app never records a video.
 - Explicit eye-level, +35°, and −35° passes. Final assembly remains locked until all 24 target photos have been captured.
-- Switchable Automatic and Manual capture, preview-matched 1.0×–1.4× digital zoom, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress.
+- Switchable Automatic and Manual capture, preview-matched zoom, detected ultrawide/rear-lens selection, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress. Real hardware zoom reaches 0.6× when the browser exposes it; the software fallback remains 1.0×–1.4×.
 - Local 4096×2048 panorama assembly, overlap feathering, IndexedDB persistence, retake support, and JPG download. Capture images are not uploaded.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
@@ -137,6 +137,7 @@ This repository does not include authentication, a CMS, cloud storage, a no-code
 
 - The capture studio takes 24 individual stills from a persistent live camera stream and assembles one 360° viewpoint using deterministic crop and overlap feathering. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform feature-matched stitching, depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
 - The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
+- Ultrawide access depends on the phone and browser exposing either a hardware zoom range below 1× or multiple rear `videoinput` devices. When neither is available, Astra3D cannot reproduce a real 0.6× field of view and keeps the honest 1× minimum.
 - IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.
 - The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
 - Control Center metrics, journey paths, engagement totals, and inventory rows are illustrative demo data. No visitor behavior is collected or stored.
