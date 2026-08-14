@@ -84,6 +84,7 @@ function drawCover(
   sourceHeight: number,
   targetWidth: number,
   targetHeight: number,
+  zoom = 1,
 ) {
   const sourceRatio = sourceWidth / sourceHeight;
   const targetRatio = targetWidth / targetHeight;
@@ -100,6 +101,12 @@ function drawCover(
     cropY = (sourceHeight - cropHeight) / 2;
   }
 
+  const safeZoom = Math.max(1, Math.min(1.4, zoom));
+  cropWidth /= safeZoom;
+  cropHeight /= safeZoom;
+  cropX = (sourceWidth - cropWidth) / 2;
+  cropY = (sourceHeight - cropHeight) / 2;
+
   context.drawImage(
     source,
     cropX,
@@ -113,7 +120,7 @@ function drawCover(
   );
 }
 
-export function captureLiveStill(video: HTMLVideoElement) {
+export function captureLiveStill(video: HTMLVideoElement, zoom = 1) {
   if (!video.videoWidth || !video.videoHeight) {
     throw new Error("The camera is still starting. Try again in a moment.");
   }
@@ -127,6 +134,7 @@ export function captureLiveStill(video: HTMLVideoElement) {
     video.videoHeight,
     canvas.width,
     canvas.height,
+    zoom,
   );
   return canvasToDataUrl(canvas);
 }

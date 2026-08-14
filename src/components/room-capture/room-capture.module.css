@@ -552,6 +552,8 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scale(var(--capture-zoom, 1));
+  transition: transform 180ms ease;
 }
 
 .fileCameraFallback {
@@ -662,6 +664,45 @@
   color: var(--color-muted-strong);
   font-size: 0.75rem;
   transform: translateX(-50%);
+}
+
+.captureZoom {
+  position: absolute;
+  z-index: 7;
+  top: 1rem;
+  right: 1rem;
+  display: grid;
+  min-height: 2.75rem;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(212, 236, 253, 0.18);
+  border-radius: 999px;
+  background: rgba(3, 10, 19, 0.78);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+  grid-template-columns: 2.75rem 3rem 2.75rem;
+  backdrop-filter: blur(12px);
+}
+
+.captureZoom button {
+  display: grid;
+  min-height: 2.75rem;
+  place-items: center;
+  color: var(--color-ice);
+}
+
+.captureZoom button:disabled {
+  opacity: 0.3;
+}
+
+.captureZoom svg {
+  width: 1rem;
+}
+
+.captureZoom output {
+  color: var(--color-cyan-soft);
+  font-size: 0.72rem;
+  font-weight: 750;
+  text-align: center;
 }
 
 .autoCaptureState {
@@ -996,9 +1037,20 @@
   justify-self: center;
 }
 
-.controlSpacer {
-  width: 1px;
+.quickModeSwitch {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.4rem;
   justify-self: end;
+  color: var(--color-muted-strong);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.quickModeSwitch:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 
 .hiddenInput {
@@ -1025,6 +1077,65 @@
 .captureRail > p:not(.kicker) {
   color: var(--color-muted);
   font-size: 0.85rem;
+}
+
+.captureMode {
+  display: grid;
+  margin-top: 1.25rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(178, 215, 242, 0.12);
+  border-radius: 1rem;
+  background: rgba(3, 10, 19, 0.48);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.captureMode button {
+  display: grid;
+  min-width: 0;
+  min-height: 3.5rem;
+  align-items: center;
+  padding: 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: #081523;
+  color: #f2f9ff;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 0.45rem;
+  text-align: left;
+}
+
+.captureMode button[data-active="true"] {
+  border-color: rgba(103, 220, 255, 0.3);
+  background: rgba(56, 182, 255, 0.1);
+  color: var(--color-ice);
+}
+
+.captureMode button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.captureMode svg {
+  width: 1.1rem;
+  color: var(--color-cyan-soft);
+}
+
+.captureMode span {
+  display: grid;
+  min-width: 0;
+}
+
+.captureMode strong {
+  font-size: 0.72rem;
+}
+
+.captureMode small {
+  overflow: hidden;
+  color: #c6d8e7;
+  font-size: 0.58rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bandList {
@@ -1097,6 +1208,77 @@
   border-radius: inherit;
   background: var(--color-cyan-soft);
   transition: width 240ms ease;
+}
+
+.retakeMap {
+  display: grid;
+  margin-top: 1.2rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(178, 215, 242, 0.11);
+  border-radius: 1rem;
+  background: rgba(3, 10, 19, 0.42);
+  gap: 0.65rem;
+}
+
+.retakeMap > div:first-child {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.retakeMap > div:first-child strong {
+  font-size: 0.72rem;
+}
+
+.retakeMap > div:first-child small {
+  color: var(--color-muted);
+  font-size: 0.58rem;
+}
+
+.retakeRow {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.45rem;
+}
+
+.retakeRow > span {
+  color: var(--color-muted);
+  font-size: 0.58rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.retakeRow > div {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.28rem;
+}
+
+.retakeRow button {
+  aspect-ratio: 0.8;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(184, 217, 241, 0.15);
+  border-radius: 0.38rem;
+  background-color: rgba(184, 217, 241, 0.045);
+  background-position: center;
+  background-size: cover;
+  color: white;
+  font-size: 0.56rem;
+  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.retakeRow button[data-selected="true"] {
+  border-color: #63e6be;
+  box-shadow: 0 0 0 2px rgba(99, 230, 190, 0.2);
+}
+
+.retakeRow button:disabled:not([style]) {
+  cursor: not-allowed;
+  opacity: 0.25;
 }
 
 .scanTip,
