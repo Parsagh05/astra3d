@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildCaptureSlots,
   CAPTURE_COLUMNS,
+  getSignedAngleDelta,
+  hasReachedSweepTarget,
   getBandRow,
   getCaptureProgress,
   TOTAL_CAPTURE_SLOTS,
@@ -39,5 +41,13 @@ describe("room capture plan", () => {
     expect(getCaptureProgress(0)).toBe(0);
     expect(getCaptureProgress(12)).toBe(50);
     expect(getCaptureProgress(24)).toBe(100);
+  });
+
+  it("unwraps IMU headings and advances automatic sweep targets", () => {
+    expect(getSignedAngleDelta(4, 358)).toBe(6);
+    expect(getSignedAngleDelta(358, 4)).toBe(-6);
+    expect(hasReachedSweepTarget(44, 1)).toBe(false);
+    expect(hasReachedSweepTarget(45, 1)).toBe(true);
+    expect(hasReachedSweepTarget(-90, 2)).toBe(true);
   });
 });

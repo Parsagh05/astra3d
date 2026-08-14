@@ -25,10 +25,10 @@ test("offers a guided phone capture route without horizontal overflow", async ({
   await expect(
     page.getByRole("heading", {
       level: 1,
-      name: "Turn phone photos into your first 360° room.",
+      name: "Scan once. Look around forever.",
     }),
   ).toBeVisible();
-  await expect(page.getByText("Photos stay on this device")).toBeVisible();
+  await expect(page.getByText("Your scan stays on this device")).toBeVisible();
 
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(
@@ -38,8 +38,9 @@ test("offers a guided phone capture route without horizontal overflow", async ({
   ).toEqual([]);
 
   await page.getByRole("button", { name: /Start room scan/i }).click();
-  await expect(page.getByText("Camera preview blocked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Capture 1" })).toBeVisible();
+  await expect(page.getByText("Live preview blocked")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record guided video" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use individual photos instead" })).toBeVisible();
   await expect(page.getByText("0 / 24")).toBeVisible();
 
   const dimensions = await page.evaluate(() => ({
@@ -49,6 +50,56 @@ test("offers a guided phone capture route without horizontal overflow", async ({
   expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
+test("automatically captures a live sweep from IMU angle changes", async ({ page }) => {
+  test.setTimeout(20_000);
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+      configurable: true,
+      get: () => 900,
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+      configurable: true,
+      get: () => 1200,
+    });
+    HTMLMediaElement.prototype.play = async () => undefined;
+    CanvasRenderingContext2D.prototype.drawImage = () => undefined;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => new MediaStream(),
+      },
+    });
+  });
+
+  await page.goto("/studio/");
+  await page.getByRole("button", { name: /Start room scan/i }).click();
+  await expect(page.getByRole("button", { name: "Start automatic sweep" })).toBeVisible();
+  await expect.poll(
+    () => page.locator("video").evaluate((video: HTMLVideoElement) => video.videoWidth),
+  ).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Start automatic sweep" }).click();
+  await page.waitForTimeout(2200);
+  await page.evaluate(() => {
+    const event = new Event("deviceorientation");
+    Object.defineProperty(event, "alpha", { value: 0 });
+    window.dispatchEvent(event);
+  });
+  await expect(page.getByText("IMU angle tracking")).toBeVisible({ timeout: 6_000 });
+
+  for (const alpha of [45, 90, 135, 180, 225, 270, 315]) {
+    await page.evaluate((heading) => {
+      const event = new Event("deviceorientation");
+      Object.defineProperty(event, "alpha", { value: heading });
+      window.dispatchEvent(event);
+    }, alpha);
+    await page.waitForTimeout(60);
+  }
+
+  await expect(page.getByText("8 / 24")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start next sweep" })).toBeVisible();
+});
+
 test("assembles 24 guided images into a locally generated room", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
   test.setTimeout(45_000);
@@ -56,9 +107,9 @@ test("assembles 24 guided images into a locally generated room", async ({ page }
   await page.goto("/studio/");
   await page.getByRole("textbox", { name: "Room name" }).fill("Test living room");
   await page.getByRole("button", { name: /Start room scan/i }).click();
-  await expect(page.getByText("Camera preview blocked")).toBeVisible();
+  await expect(page.getByText("Live preview blocked")).toBeVisible();
 
-  const input = page.locator('input[type="file"]');
+  const input = page.locator('input[type="file"][accept="image/*"]');
   for (let index = 0; index < 24; index += 1) {
     await input.setInputFiles({
       name: `room-${index + 1}.png`,

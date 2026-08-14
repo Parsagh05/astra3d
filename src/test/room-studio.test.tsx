@@ -12,20 +12,21 @@ describe("RoomStudio", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Turn phone photos into your first 360° room.",
+        name: "Scan once. Look around forever.",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Photos stay on this device")).toBeInTheDocument();
+    expect(screen.getByText("Your scan stays on this device")).toBeInTheDocument();
 
     await user.clear(screen.getByRole("textbox", { name: "Room name" }));
     await user.type(screen.getByRole("textbox", { name: "Room name" }), "Living room");
     await user.click(screen.getByRole("button", { name: /Start room scan/i }));
 
     await waitFor(() => {
-      expect(screen.getByText("Android camera mode")).toBeInTheDocument();
+      expect(screen.getByText("One-video scan")).toBeInTheDocument();
     });
-    expect(screen.getByRole("heading", { name: "Photograph every layer." })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Capture 1" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rotate. We capture." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Record guided video" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Use individual photos instead" })).toBeInTheDocument();
     expect(screen.getByText("0 / 24")).toBeInTheDocument();
   });
 });
