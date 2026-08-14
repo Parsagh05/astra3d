@@ -33,6 +33,7 @@ class PreparedFrame:
     sequence: int
     band: str
     column: int
+    source: np.ndarray
     image: np.ndarray
     mask: np.ndarray
     gray: np.ndarray
@@ -116,6 +117,7 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
                     sequence=sequence,
                     band=band,
                     column=column,
+                    source=image,
                     image=warped,
                     mask=mask,
                     gray=gray,
@@ -229,25 +231,74 @@ def choose_retakes(frames: list[PreparedFrame], weak_by_band: dict[str, list[int
     return sorted(retakes)
 
 
-def clip_layer(
-    image: np.ndarray,
-    mask: np.ndarray,
-    left: int,
-    top: int,
-    canvas_width: int,
-    canvas_height: int,
-) -> tuple[np.ndarray, np.ndarray, tuple[int, int]] | None:
-    height, width = image.shape[:2]
-    x0, y0 = max(0, left), max(0, top)
-    x1, y1 = min(canvas_width, left + width), min(canvas_height, top + height)
-    if x1 <= x0 or y1 <= y0:
-        return None
-    source_x, source_y = x0 - left, y0 - top
-    return (
-        image[source_y : source_y + (y1 - y0), source_x : source_x + (x1 - x0)],
-        mask[source_y : source_y + (y1 - y0), source_x : source_x + (x1 - x0)],
-        (x0, y0),
+def mask_column_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+    occupied = np.any(mask > 0, axis=0).astype(np.uint8)
+    padded = np.pad(occupied, (1, 1))
+    changes = np.diff(padded.astype(np.int8))
+    starts = np.flatnonzero(changes == 1)
+    ends = np.flatnonzero(changes == -1)
+    return [(int(start), int(end)) for start, end in zip(starts, ends) if end - start >= 3]
+
+
+def spherical_layers(
+    frame: PreparedFrame,
+    yaw_degrees: float,
+    pitch_degrees: float,
+    horizontal_fov: float,
+    longitude_sin: np.ndarray,
+    longitude_cos: np.ndarray,
+    latitude_sin: np.ndarray,
+    latitude_cos: np.ndarray,
+) -> list[tuple[np.ndarray, np.ndarray, tuple[int, int]]]:
+    source_height, source_width = frame.source.shape[:2]
+    focal = (source_width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
+    world_x = latitude_cos[:, None] * longitude_sin[None, :]
+    world_y = latitude_sin[:, None]
+    world_z = latitude_cos[:, None] * longitude_cos[None, :]
+
+    yaw = math.radians(yaw_degrees)
+    pitch = math.radians(pitch_degrees)
+    # Invert Ry(yaw) * Rx(-pitch) to transform each world ray into
+    # this camera. Positive pitch therefore points toward the ceiling.
+    local_x = math.cos(yaw) * world_x - math.sin(yaw) * world_z
+    yaw_local_z = math.sin(yaw) * world_x + math.cos(yaw) * world_z
+    local_y = math.cos(pitch) * world_y - math.sin(pitch) * yaw_local_z
+    local_z = math.sin(pitch) * world_y + math.cos(pitch) * yaw_local_z
+
+    safe_z = np.where(local_z > 1e-5, local_z, 1.0)
+    map_x = (focal * local_x / safe_z + (source_width - 1) * 0.5).astype(np.float32)
+    map_y = ((source_height - 1) * 0.5 - focal * local_y / safe_z).astype(np.float32)
+    valid = (
+        (local_z > 1e-5)
+        & (map_x >= 0)
+        & (map_x <= source_width - 1)
+        & (map_y >= 0)
+        & (map_y <= source_height - 1)
     )
+    mask = valid.astype(np.uint8) * 255
+    projected = cv2.remap(
+        frame.source,
+        map_x,
+        map_y,
+        cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+    )
+
+    layers: list[tuple[np.ndarray, np.ndarray, tuple[int, int]]] = []
+    for start, end in mask_column_runs(mask):
+        segment = mask[:, start:end]
+        occupied_rows = np.flatnonzero(np.any(segment > 0, axis=1))
+        if occupied_rows.size == 0:
+            continue
+        top, bottom = int(occupied_rows[0]), int(occupied_rows[-1] + 1)
+        layers.append(
+            (
+                projected[top:bottom, start:end].copy(),
+                mask[top:bottom, start:end].copy(),
+                (start, top),
+            )
+        )
+    return layers
 
 
 def build_layers(
@@ -255,35 +306,37 @@ def build_layers(
     positions: dict[str, tuple[list[float], list[float], float]],
     output_width: int,
     output_height: int,
+    horizontal_fov: float,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[int, int]]]:
     images: list[np.ndarray] = []
     masks: list[np.ndarray] = []
     corners: list[tuple[int, int]] = []
-    reference_circumference = positions["middle"][2]
-    global_scale = output_width / reference_circumference
+    longitude = np.arange(output_width, dtype=np.float32) * (2.0 * np.pi / output_width)
+    latitude = np.pi * 0.5 - np.arange(output_height, dtype=np.float32) * (np.pi / output_height)
+    longitude_sin = np.sin(longitude)
+    longitude_cos = np.cos(longitude)
+    latitude_sin = np.sin(latitude)
+    latitude_cos = np.cos(latitude)
 
     for band_index, (band, pitch) in enumerate(BANDS):
         x_positions, y_positions, circumference = positions[band]
-        band_scale = global_scale * reference_circumference / circumference
         band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
         for column, frame in enumerate(band_frames):
-            frame_width = max(8, round(frame.image.shape[1] * band_scale))
-            frame_height = max(8, round(frame.image.shape[0] * band_scale))
-            interpolation = cv2.INTER_AREA if band_scale < 1 else cv2.INTER_LINEAR
-            image = cv2.resize(frame.image, (frame_width, frame_height), interpolation=interpolation)
-            mask = cv2.resize(frame.mask, (frame_width, frame_height), interpolation=cv2.INTER_NEAREST)
-            x = round(x_positions[column] * output_width / circumference)
-            pitch_offset = pitch * output_width / 360.0
-            y = round(output_height * 0.5 - pitch_offset - frame_height * 0.5 + y_positions[column] * band_scale)
-            for wrapped_x in (x - output_width, x, x + output_width):
-                clipped = clip_layer(image, mask, wrapped_x, y, output_width, output_height)
-                if clipped is None:
-                    continue
-                clipped_image, clipped_mask, corner = clipped
-                if clipped_image.shape[0] < 4 or clipped_image.shape[1] < 4:
-                    continue
-                images.append(clipped_image)
-                masks.append(clipped_mask)
+            yaw = x_positions[column] * 360.0 / circumference
+            registration_focal = (frame.image.shape[1] * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
+            pitch_correction = math.degrees(math.atan2(y_positions[column], registration_focal))
+            for image, mask, corner in spherical_layers(
+                frame,
+                yaw,
+                pitch - pitch_correction,
+                horizontal_fov,
+                longitude_sin,
+                longitude_cos,
+                latitude_sin,
+                latitude_cos,
+            ):
+                images.append(image)
+                masks.append(mask)
                 corners.append(corner)
     return images, masks, corners
 
@@ -307,8 +360,8 @@ def find_seams(images: list[np.ndarray], masks: list[np.ndarray], corners: list[
         seam_masks.append(cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST))
         seam_corners.append((round(left * seam_scale), round(top * seam_scale)))
     finder = cv2.detail_GraphCutSeamFinder("COST_COLOR_GRAD")
-    finder.find(seam_images, seam_corners, seam_masks)
-    for index, seam_mask in enumerate(seam_masks):
+    resolved_masks = finder.find(seam_images, seam_corners, seam_masks)
+    for index, seam_mask in enumerate(resolved_masks):
         masks[index] = cv2.resize(
             seam_mask,
             (masks[index].shape[1], masks[index].shape[0]),
@@ -379,7 +432,13 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     # without exhausting a normal laptop's memory.
     blend_width = min(args.width, 1920)
     blend_height = blend_width // 2
-    images, masks, corners = build_layers(frames, positions, blend_width, blend_height)
+    images, masks, corners = build_layers(
+        frames,
+        positions,
+        blend_width,
+        blend_height,
+        effective_fov,
+    )
     coverage = np.zeros((blend_height, blend_width), dtype=np.uint8)
     for mask, (left, top) in zip(masks, corners):
         target = coverage[top : top + mask.shape[0], left : left + mask.shape[1]]
