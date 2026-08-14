@@ -7,8 +7,8 @@ The visual identity, environments, products, and copy were created for this proj
 ## Highlights
 
 - A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point.
-- Continuous rear-camera scanning on a secure origin, with IMU-guided automatic capture at eight overlapping angles per sweep.
-- One native Android video fallback on local-network HTTP; the app extracts 24 useful views across eye-level, upper, and lower sweeps automatically.
+- A persistent rear-camera preview on a secure origin, with IMU-guided still capture at eight overlapping targets per sweep. The app never records a video.
+- Explicit eye-level, +35°, and −35° passes. Final assembly remains locked until all 24 target photos have been captured.
 - Local 4096×2048 panorama assembly, overlap feathering, IndexedDB persistence, retake support, and JPG download. Capture images are not uploaded.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
@@ -45,18 +45,24 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-The room creator is available at `http://localhost:3000/studio/`. Continuous camera preview and motion-sensor capture require a secure browser context (`https://` or `localhost`). On a phone connected over ordinary LAN HTTP, the studio automatically uses an `<input capture="environment" accept="video/*">` fallback that records one native Android video. Record three slow rotations from the same point—eye level, tilted upward, then tilted downward—and the app extracts the panorama views locally.
+The room creator is available at `http://localhost:3000/studio/`. Its persistent camera preview and motion-sensor guidance require a secure browser context (`https://` or `localhost`). The user follows one on-screen target at a time; when the target is centered and the phone is steady, the app copies one still image from the live camera stream. It does not start or save a video recording. If motion data is unavailable, the same live preview remains open and the user taps one in-app capture button per target.
 
-### Test from an Android phone on the same network
+### Test from an Android phone with the full live scanner
 
-Build and bind the static site to every local interface:
+The most reliable local setup is Android Debug Bridge (ADB) over USB. It maps the phone's `localhost` to the laptop, so the browser allows the live camera without a certificate:
 
 ```powershell
-npm.cmd run build
-.\node_modules\.bin\serve.cmd out -l tcp://0.0.0.0:4173 --no-clipboard
+npm.cmd run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
-Find the PC's active IPv4 address with `ipconfig`, connect Android to the same router, and open `http://PC-IP:4173/studio/`. For example: `http://192.168.1.11:4173/studio/`. Allow Node.js through Windows Firewall on Private networks if prompted. The LAN-HTTP workflow records one native-camera video by design; use localhost through Android `adb reverse`, a trusted local HTTPS certificate, or an HTTPS tunnel when continuous in-page camera and IMU guidance are required.
+In a second PowerShell window, after enabling Android Developer options and USB debugging:
+
+```powershell
+adb devices
+adb reverse tcp:3000 tcp:3000
+```
+
+On the phone, open `http://localhost:3000/studio/` in Chrome and allow camera and motion access. Keep the USB cable connected while testing. A trusted HTTPS URL or HTTPS development tunnel also works. An ordinary URL such as `http://192.168.x.x:3000` can display the website, but mobile browsers intentionally block this live scanner on insecure LAN HTTP.
 
 ## Commands
 
@@ -128,7 +134,7 @@ The share controls create a URL for the currently hosted build and, where availa
 
 This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
 
-- The capture studio samples a continuous video or live camera feed and assembles one 360° viewpoint using deterministic crop and overlap feathering. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform feature-matched stitching, depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
+- The capture studio takes 24 individual stills from a persistent live camera stream and assembles one 360° viewpoint using deterministic crop and overlap feathering. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform feature-matched stitching, depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
 - The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
 - IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.
 - The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
