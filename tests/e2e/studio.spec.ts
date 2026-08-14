@@ -57,9 +57,9 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   ).toBeVisible();
   await expect(page.getByText("Your scan stays on this device")).toBeVisible();
 
-  const accessibility = await new AxeBuilder({ page }).analyze();
+  const captureAccessibility = await new AxeBuilder({ page }).analyze();
   expect(
-    accessibility.violations.filter((violation) =>
+    captureAccessibility.violations.filter((violation) =>
       violation.impact === "critical" || violation.impact === "serious",
     ),
   ).toEqual([]);
@@ -105,6 +105,13 @@ test("offers a secure guided phone capture route without horizontal overflow", a
     pageWidth: document.documentElement.scrollWidth,
   }));
   expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
+
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(
+    accessibility.violations.filter((violation) =>
+      violation.impact === "critical" || violation.impact === "serious",
+    ),
+  ).toEqual([]);
 });
 
 test("captures live still targets and requires all three tilt bands", async ({ page }) => {
@@ -146,6 +153,62 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   await completeGuidedBand(page, 125, 16);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
+});
+
+test("switches to manual capture, zooms the saved crop, and retakes any captured angle", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
+      configurable: true,
+      get: () => 900,
+    });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", {
+      configurable: true,
+      get: () => 1200,
+    });
+    HTMLMediaElement.prototype.play = async () => undefined;
+    Object.defineProperty(CanvasRenderingContext2D.prototype, "drawImage", {
+      configurable: true,
+      value: (...args: unknown[]) => {
+        (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth = Number(args[3]);
+      },
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => new MediaStream() },
+    });
+  });
+
+  await page.goto("/studio/");
+  await page.getByRole("button", { name: /Start room scan/i }).click();
+  await page.getByRole("button", { name: /^Manual/ }).click();
+  await expect(page.getByRole("button", { name: /^Manual/ })).toHaveAttribute("data-active", "true");
+
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(page.getByText(/^1\.2/)).toBeVisible();
+  await expect(page.getByLabel("Rear camera preview")).toHaveCSS("transform", /matrix\(1\.2/);
+
+  await page.getByRole("button", { name: "Begin eye-level capture" }).click();
+  await page.getByRole("button", { name: "Capture target 1" }).click();
+  await expect(page.getByText("1 / 24")).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth)).toBeCloseTo(750, 0);
+
+  await page.getByRole("button", { name: "Capture target 2" }).click();
+  await expect(page.getByText("2 / 24")).toBeVisible();
+  await page.getByRole("button", { name: "Retake Eye level direction 1" }).click();
+  await expect(page.getByRole("button", { name: "Retake direction 1" })).toBeVisible();
+  await page.getByRole("button", { name: "Retake direction 1" }).click();
+
+  await expect(page.getByText("2 / 24")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Capture target 3" })).toBeVisible();
+  await page.getByRole("button", { name: "Retake previous captured view" }).click();
+  await expect(page.getByRole("button", { name: "Retake direction 2" })).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    viewportWidth: window.innerWidth,
+    pageWidth: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
 test("assembles the 24 guided stills into a locally generated room", async ({ page }, testInfo) => {
