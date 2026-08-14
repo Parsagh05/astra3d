@@ -1,6 +1,6 @@
 # Astra3D — Interactive Spatial Commerce
 
-Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/Sharp backend, saves the returned result in the phone browser, and opens it in an interactive 360° viewer. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
+Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/OpenCV backend, saves the returned result in the phone browser, and opens it in an interactive 360° viewer. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
 
 The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
 
@@ -10,7 +10,7 @@ The visual identity, environments, products, and copy were created for this proj
 - A persistent rear-camera preview on a secure origin, with IMU-guided still capture at eight overlapping targets per sweep. The app never records a video.
 - Explicit eye-level, +35°, and −35° passes. Final assembly remains locked until all 24 target photos have been captured.
 - Switchable Automatic and Manual capture, preview-matched zoom, detected ultrawide/rear-lens selection, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress. Real hardware zoom reaches 0.6× when the browser exposes it; the software fallback remains 1.0×–1.4×.
-- Laptop-side 3072×1536 panorama assembly with validated uploads, bounded memory input, overlap feathering, IndexedDB result persistence, retake support, and JPG download. Stills are processed in server memory and are not sent to a cloud service or retained on disk.
+- Laptop-side 3072×1536 panorama assembly with validated uploads, SIFT overlap alignment, cylindrical projection, exposure compensation, graph-cut seam selection, multiband blending, quality reporting, targeted retake requests, IndexedDB result persistence, and JPG download. Temporary job files remain on the laptop and are erased after every result or error.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
 - Automatic static fallback for reduced motion, reduced data, unavailable WebGL, or a lost WebGL context.
@@ -28,7 +28,7 @@ The visual identity, environments, products, and copy were created for this proj
 ## Technology
 
 - Next.js 16 App Router and React 19
-- Node.js Route Handlers and Sharp for laptop-side image processing
+- Node.js Route Handlers with a private Python/OpenCV panorama worker
 - TypeScript in strict mode
 - React Three Fiber, Drei, and Three.js
 - CSS Modules plus global design tokens
@@ -38,10 +38,11 @@ The visual identity, environments, products, and copy were created for this proj
 
 ## Local development
 
-Node.js 22 and npm 10 are recommended. The application has no required environment variables or external cloud services. It must run as a Node.js application because `/api/panorama` performs the image work on the laptop.
+Node.js 22, npm 10, and Python 3.11+ are recommended. The application has no required environment variables or external cloud services. It must run as a Node.js application because `/api/panorama` performs the image work on the laptop.
 
 ```bash
 npm ci
+npm run setup:panorama
 npm run dev
 ```
 
@@ -73,6 +74,7 @@ If Android asks for pairing first, choose **Pair device with pairing code** and 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the Next.js development server. |
+| `npm run setup:panorama` | Install the pinned NumPy/OpenCV laptop processor requirements. |
 | `npm run lint` | Run ESLint across application, configuration, and tests. |
 | `npm run typecheck` | Run strict TypeScript checking without emitting files. |
 | `npm test` | Run the Vitest component suite once. |
@@ -116,7 +118,7 @@ src/
 ├── data/
 │   ├── flagship-tour.ts    Three-scene tour, hotspots, and demo product catalog
 │   └── platform.ts         Typed experience and capability content
-├── server/                 Sharp panorama composition used only by the laptop
+├── server/                 Private laptop panorama worker orchestration
 ├── test/                   Vitest component, API, and processor coverage
 └── types/
     ├── platform.ts         Marketing experience and lead-request models
@@ -141,7 +143,7 @@ The share controls create a URL for the currently hosted build and, where availa
 
 This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
 
-- The capture studio takes 24 individual stills from a persistent live camera stream and uploads them only to the connected Astra3D Node server. Sharp assembles one 360° viewpoint using deterministic crop and overlap feathering, returns the JPEG, and discards the request buffers. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform feature-matched stitching, depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
+- The capture studio takes 24 individual stills from a persistent live camera stream and uploads them only to the connected Astra3D Node server. OpenCV matches neighboring SIFT features, cylindrically projects the views, compensates exposure, selects low-error seams, and multiband blends the result. Temporary job files are created only in the operating system temp directory and removed after success or failure. It never records a video. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
 - The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
 - Ultrawide access depends on the phone and browser exposing either a hardware zoom range below 1× or multiple rear `videoinput` devices. When neither is available, Astra3D cannot reproduce a real 0.6× field of view and keeps the honest 1× minimum.
 - IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.

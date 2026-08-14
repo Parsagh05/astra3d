@@ -4,6 +4,7 @@ export {
   CAPTURE_COLUMNS,
   getBandRow,
   getCaptureProgress,
+  getRelativeCameraPitch,
   getSignedAngleDelta,
   TOTAL_CAPTURE_SLOTS,
 } from "@/lib/capture-plan";

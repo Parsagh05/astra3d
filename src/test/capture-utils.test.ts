@@ -6,6 +6,7 @@ import {
   getSignedAngleDelta,
   getBandRow,
   getCaptureProgress,
+  getRelativeCameraPitch,
   TOTAL_CAPTURE_SLOTS,
 } from "@/components/room-capture/capture-utils";
 
@@ -45,5 +46,11 @@ describe("room capture plan", () => {
   it("unwraps IMU headings across the compass boundary", () => {
     expect(getSignedAngleDelta(4, 358)).toBe(6);
     expect(getSignedAngleDelta(358, 4)).toBe(-6);
+  });
+
+  it("treats rear-camera tilt toward the ceiling as positive pitch", () => {
+    expect(getRelativeCameraPitch(55, 90)).toBe(35);
+    expect(getRelativeCameraPitch(90, 90)).toBe(0);
+    expect(getRelativeCameraPitch(125, 90)).toBe(-35);
   });
 });

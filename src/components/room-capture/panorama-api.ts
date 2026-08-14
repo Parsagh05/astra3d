@@ -1,4 +1,4 @@
-import type { CapturedFrame } from "@/types/capture";
+import type { CapturedFrame, PanoramaQualityReport } from "@/types/capture";
 
 export type PanoramaProcessingPhase =
   | "preparing"
@@ -13,7 +13,26 @@ export type PanoramaProcessingUpdate = {
 
 type PanoramaErrorPayload = {
   error?: string;
+  code?: string;
+  retakeSequences?: number[];
 };
+
+export type ProcessedPanorama = {
+  panorama: Blob;
+  quality: PanoramaQualityReport;
+};
+
+export class PanoramaUploadError extends Error {
+  readonly code: string;
+  readonly retakeSequences: number[];
+
+  constructor(message: string, code = "PROCESSING_FAILED", retakeSequences: number[] = []) {
+    super(message);
+    this.name = "PanoramaUploadError";
+    this.code = code;
+    this.retakeSequences = retakeSequences;
+  }
+}
 
 export function decodeCaptureDataUrl(dataUrl: string) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/i.exec(dataUrl);
@@ -42,6 +61,7 @@ export function createPanoramaUpload(frames: readonly CapturedFrame[]) {
       image,
       `${frame.band}-${frame.column}.${extension}`,
     );
+    formData.append(`zoom-${frame.sequence}`, String(frame.zoom));
   }
   return formData;
 }
@@ -49,17 +69,55 @@ export function createPanoramaUpload(frames: readonly CapturedFrame[]) {
 async function readServerError(response: Blob) {
   try {
     const payload = JSON.parse(await response.text()) as PanoramaErrorPayload;
-    return payload.error || "The laptop panorama processor rejected the capture.";
+    return new PanoramaUploadError(
+      payload.error || "The laptop panorama processor rejected the capture.",
+      payload.code ?? "PROCESSING_FAILED",
+      Array.isArray(payload.retakeSequences)
+        ? payload.retakeSequences.filter((value) => Number.isInteger(value) && value >= 0 && value < 24)
+        : [],
+    );
   } catch {
-    return "The laptop panorama processor returned an unreadable response.";
+    return new PanoramaUploadError("The laptop panorama processor returned an unreadable response.");
   }
+}
+
+function numberHeader(request: XMLHttpRequest, name: string, fallback: number) {
+  const value = Number(request.getResponseHeader(name));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function parseWarnings(value: string | null) {
+  if (!value) return [];
+  try {
+    const warnings = JSON.parse(decodeURIComponent(value)) as unknown;
+    return Array.isArray(warnings)
+      ? warnings.filter((warning): warning is string => typeof warning === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
+  const retakeHeader = request.getResponseHeader("X-Astra3D-Retakes");
+  return {
+    method: "opencv-sift-cylindrical-v2",
+    alignmentScore: numberHeader(request, "X-Astra3D-Alignment", 0),
+    coverage: numberHeader(request, "X-Astra3D-Coverage", 0),
+    fallbackPairs: numberHeader(request, "X-Astra3D-Fallback-Pairs", 0),
+    matchedPairs: numberHeader(request, "X-Astra3D-Matched-Pairs", 0),
+    retakeSequences: retakeHeader
+      ? retakeHeader.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0 && value < 24)
+      : [],
+    warnings: parseWarnings(request.getResponseHeader("X-Astra3D-Warnings")),
+  };
 }
 
 export function processPanoramaOnServer(
   frames: readonly CapturedFrame[],
   onUpdate: (update: PanoramaProcessingUpdate) => void,
 ) {
-  return new Promise<Blob>((resolve, reject) => {
+  return new Promise<ProcessedPanorama>((resolve, reject) => {
     let formData: FormData;
     try {
       onUpdate({ phase: "preparing", progress: 6 });
@@ -72,7 +130,7 @@ export function processPanoramaOnServer(
     const request = new XMLHttpRequest();
     request.open("POST", "/api/panorama");
     request.responseType = "blob";
-    request.timeout = 120_000;
+    request.timeout = 240_000;
     request.setRequestHeader("Accept", "image/jpeg");
     request.setRequestHeader("X-Astra3D-Client", "room-studio-v1");
 
@@ -95,11 +153,11 @@ export function processPanoramaOnServer(
       const response = request.response as Blob;
       if (request.status >= 200 && request.status < 300 && response.type === "image/jpeg") {
         onUpdate({ phase: "receiving", progress: 100 });
-        resolve(response);
+        resolve({ panorama: response, quality: readQualityReport(request) });
         return;
       }
 
-      void readServerError(response).then((message) => reject(new Error(message)));
+      void readServerError(response).then(reject);
     });
     request.addEventListener("error", () => {
       reject(new Error("The phone could not reach the laptop processor. Keep npm run dev open and try again."));

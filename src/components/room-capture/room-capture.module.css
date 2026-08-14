@@ -1561,6 +1561,56 @@
   color: var(--color-cyan-soft);
 }
 
+.alignmentReport {
+  display: grid;
+  gap: 0.9rem;
+  width: min(100%, 54rem);
+  margin-inline: auto;
+  padding: 1rem;
+  border: 1px solid rgba(89, 220, 255, 0.2);
+  border-radius: 1.25rem;
+  background: rgba(8, 27, 43, 0.72);
+}
+
+.alignmentReport > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.alignmentReport > div:first-child span,
+.alignmentReport p,
+.alignmentReport dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.alignmentReport dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0;
+}
+
+.alignmentReport dl div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.7rem;
+  border-radius: 0.9rem;
+  background: rgba(122, 226, 255, 0.07);
+}
+
+.alignmentReport dt,
+.alignmentReport dd,
+.alignmentReport p {
+  margin: 0;
+}
+
+.alignmentReport dd {
+  color: var(--color-ice);
+  font: 600 1rem/1.2 var(--font-display);
+}
+
 .viewerControls button {
   display: grid;
   width: 2.8rem;

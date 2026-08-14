@@ -28,3 +28,5 @@ next-env.d.ts
 
 # temporary generated files
 /tmp/
+__pycache__/
+*.py[cod]

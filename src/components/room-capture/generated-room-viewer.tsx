@@ -35,6 +35,8 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
   const [view, setView] = useState(initialView);
   const [ready, setReady] = useState(false);
   const [fallback, setFallback] = useState(false);
+  const alignmentPercent = room.quality ? Math.round(room.quality.alignmentScore * 100) : null;
+  const coveragePercent = room.quality ? Math.round(room.quality.coverage * 100) : null;
 
   useEffect(() => {
     let active = true;
@@ -175,6 +177,21 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
         </p>
       ) : null}
 
+      {room.quality ? (
+        <div className={styles.alignmentReport} aria-label="Panorama processing quality">
+          <div>
+            <strong>Feature-aligned result</strong>
+            <span>OpenCV checked every neighboring view before blending.</span>
+          </div>
+          <dl>
+            <div><dt>Matched overlaps</dt><dd>{room.quality.matchedPairs} / 24</dd></div>
+            <div><dt>Alignment</dt><dd>{alignmentPercent}%</dd></div>
+            <div><dt>Coverage</dt><dd>{coveragePercent}%</dd></div>
+          </dl>
+          {room.quality.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+        </div>
+      ) : null}
+
       <div className={styles.resultActions}>
         <button className={styles.primaryButton} type="button" onClick={handleDownload} disabled={!panoramaUrl}>
           <Download aria-hidden="true" /> Download 360 JPG
@@ -185,9 +202,9 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
       </div>
 
       <div className={styles.qualityNote}>
-        <strong>About this first-stage result</strong>
+        <strong>About this single-position result</strong>
         <p>
-          It is a single standing-point panorama, built with overlap blending rather than server-side feature matching. Keep one foot position, rotate the phone around that point, and avoid moving objects for the cleanest seams.
+          OpenCV aligns visual features, corrects exposure, selects graph-cut seams, and multiband blends the overlaps. It is still one standing point—not a 3D model—so keep the phone lens over one center point and avoid moving objects for the cleanest geometry.
         </p>
       </div>
     </section>

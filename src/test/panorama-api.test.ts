@@ -18,12 +18,13 @@ describe("panorama upload client", () => {
 
   it("sorts frame fields by capture sequence for the laptop API", () => {
     const frames: CapturedFrame[] = [
-      { id: "middle-1", band: "middle", column: 1, sequence: 1, yaw: 45, capturedAt: 2, dataUrl: jpegDataUrl },
-      { id: "middle-0", band: "middle", column: 0, sequence: 0, yaw: 0, capturedAt: 1, dataUrl: jpegDataUrl },
+      { id: "middle-1", band: "middle", column: 1, sequence: 1, yaw: 45, capturedAt: 2, dataUrl: jpegDataUrl, zoom: 1.2 },
+      { id: "middle-0", band: "middle", column: 0, sequence: 0, yaw: 0, capturedAt: 1, dataUrl: jpegDataUrl, zoom: 1 },
     ];
 
     const upload = createPanoramaUpload(frames);
-    expect(Array.from(upload.keys())).toEqual(["frame-0", "frame-1"]);
+    expect(Array.from(upload.keys())).toEqual(["frame-0", "zoom-0", "frame-1", "zoom-1"]);
     expect(upload.get("frame-0")).toBeInstanceOf(File);
+    expect(upload.get("zoom-1")).toBe("1.2");
   });
 });

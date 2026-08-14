@@ -12,7 +12,7 @@ const structuredData = {
     "Requires JavaScript. WebGL provides the enhanced panorama and product views; accessible static fallbacks are included.",
   featureList: [
     "Guided 24-photo smartphone room capture",
-    "Local on-device 2:1 panorama assembly",
+    "Private laptop-side 2:1 panorama assembly",
     "Persistent private room preview and panorama download",
     "Three linked 360-degree retail scenes",
     "Pointer, touch, and keyboard panorama controls",

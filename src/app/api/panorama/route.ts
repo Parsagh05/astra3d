@@ -1,23 +1,29 @@
 import { buildCaptureSlots, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import {
-  composeRoomPanorama,
   MAX_CAPTURE_BYTES,
   MAX_FRAME_BYTES,
   PANORAMA_HEIGHT,
   PANORAMA_WIDTH,
+  PanoramaProcessingError,
+  processRoomPanorama,
   type ServerPanoramaFrame,
 } from "@/server/panorama-processor";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 240;
 
 const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const PROCESSOR_CLIENT = "room-studio-v1";
 let activeJobs = 0;
 
-function errorResponse(message: string, status: number, code: string) {
+function errorResponse(
+  message: string,
+  status: number,
+  code: string,
+  retakeSequences: number[] = [],
+) {
   return Response.json(
-    { error: message, code },
+    { error: message, code, retakeSequences },
     {
       status,
       headers: { "Cache-Control": "no-store" },
@@ -29,9 +35,17 @@ export function GET() {
   return Response.json(
     {
       ready: true,
-      processor: "sharp",
+      processor: "opencv-feature-aligned",
       expectedFrames: TOTAL_CAPTURE_SLOTS,
       output: { width: PANORAMA_WIDTH, height: PANORAMA_HEIGHT },
+      pipeline: [
+        "quality-check",
+        "sift-alignment",
+        "cylindrical-warp",
+        "exposure-compensation",
+        "graph-cut-seams",
+        "multiband-blend",
+      ],
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -87,11 +101,12 @@ async function processCaptureRequest(request: Request) {
       band: slot.band,
       column: slot.column,
       image: Buffer.from(await value.arrayBuffer()),
+      zoom: parseZoom(formData.get(`zoom-${slot.sequence}`)),
     });
   }
 
   try {
-    const panorama = await composeRoomPanorama(frames);
+    const { panorama, report } = await processRoomPanorama(frames);
     return new Response(new Uint8Array(panorama), {
       status: 200,
       headers: {
@@ -100,18 +115,34 @@ async function processCaptureRequest(request: Request) {
         "Content-Type": "image/jpeg",
         "X-Content-Type-Options": "nosniff",
         "X-Astra3D-Height": String(PANORAMA_HEIGHT),
-        "X-Astra3D-Processor": "laptop-sharp",
+        "X-Astra3D-Alignment": String(report.alignmentScore),
+        "X-Astra3D-Coverage": String(report.coverage),
+        "X-Astra3D-Fallback-Pairs": String(report.fallbackPairs),
+        "X-Astra3D-Matched-Pairs": String(report.matchedPairs),
+        "X-Astra3D-Method": report.method,
+        "X-Astra3D-Processor": "laptop-opencv",
+        "X-Astra3D-Retakes": report.retakeSequences.join(","),
+        "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(report.warnings)),
         "X-Astra3D-Width": String(PANORAMA_WIDTH),
       },
     });
   } catch (error) {
     console.error("Astra3D panorama processing failed", error);
+    if (error instanceof PanoramaProcessingError) {
+      const status = error.code === "PROCESSOR_UNAVAILABLE" ? 503 : 422;
+      return errorResponse(error.message, status, error.code, error.retakeSequences);
+    }
     return errorResponse(
       "The laptop could not process these room photos. Retake any blurred views and try again.",
       422,
       "PROCESSING_FAILED",
     );
   }
+}
+
+function parseZoom(value: FormDataEntryValue | null) {
+  const zoom = typeof value === "string" ? Number(value) : 1;
+  return Number.isFinite(zoom) && zoom >= 0.5 && zoom <= 2 ? zoom : 1;
 }
 
 export async function POST(request: Request) {

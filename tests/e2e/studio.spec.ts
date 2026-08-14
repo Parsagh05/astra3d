@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import sharp from "sharp";
 
 async function dispatchOrientation(page: Page, alpha: number, beta: number) {
   await page.evaluate(({ heading, tilt }) => {
@@ -208,13 +209,13 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   await expect(page.getByRole("button", { name: "Begin +35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin +35° capture", 125);
-  await completeGuidedBand(page, 125, 8);
+  await beginGuidedBand(page, "Begin +35° capture", 55);
+  await completeGuidedBand(page, 55, 8);
   await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin −35° capture", 55);
-  await completeGuidedBand(page, 55, 16);
+  await beginGuidedBand(page, "Begin −35° capture", 125);
+  await completeGuidedBand(page, 125, 16);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
 });
@@ -352,16 +353,46 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
     });
   });
 
+  const mockedPanorama = await sharp({
+    create: {
+      width: 64,
+      height: 32,
+      channels: 3,
+      background: { r: 30, g: 90, b: 130 },
+    },
+  }).jpeg().toBuffer();
+  await page.route("**/api/panorama", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "image/jpeg",
+      body: mockedPanorama,
+      headers: {
+        "X-Astra3D-Alignment": "0.875",
+        "X-Astra3D-Coverage": "0.98",
+        "X-Astra3D-Fallback-Pairs": "3",
+        "X-Astra3D-Matched-Pairs": "21",
+        "X-Astra3D-Method": "opencv-sift-cylindrical-v2",
+        "X-Astra3D-Processor": "laptop-opencv",
+        "X-Astra3D-Retakes": "",
+        "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(["Three overlaps used guided placement."])),
+      },
+    });
+  });
+
   await page.goto("/studio/");
   await page.getByRole("textbox", { name: "Room name" }).fill("Test living room");
   await page.getByRole("button", { name: /Start room scan/i }).click();
 
   await beginGuidedBand(page, "Begin eye-level capture", 90);
   await completeGuidedBand(page, 90, 0);
-  await beginGuidedBand(page, "Begin +35° capture", 125);
-  await completeGuidedBand(page, 125, 8);
-  await beginGuidedBand(page, "Begin −35° capture", 55);
-  await completeGuidedBand(page, 55, 16);
+  await beginGuidedBand(page, "Begin +35° capture", 55);
+  await completeGuidedBand(page, 55, 8);
+  await beginGuidedBand(page, "Begin −35° capture", 125);
+  await completeGuidedBand(page, 125, 16);
 
   const processingResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/panorama") && response.request().method() === "POST",
@@ -369,9 +400,13 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
   await page.getByRole("button", { name: /Build my 360/i }).click();
   const response = await processingResponse;
   expect(response.status()).toBe(200);
-  expect(response.headers()["x-astra3d-processor"]).toBe("laptop-sharp");
+  expect(response.headers()["x-astra3d-processor"]).toBe("laptop-opencv");
   await expect(page.getByRole("heading", { name: "Test living room" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-panorama-ready="true"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Download 360 JPG/i })).toBeEnabled();
+  await expect(page.getByText("Feature-aligned result")).toBeVisible();
+  await expect(page.getByText("21 / 24")).toBeVisible();
+  await expect(page.getByText("88%")).toBeVisible();
+  await expect(page.getByText("98%")).toBeVisible();
   await expect(page.getByText("Private · laptop processed")).toBeVisible();
 });

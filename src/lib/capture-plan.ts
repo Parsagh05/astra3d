@@ -50,6 +50,11 @@ export function getSignedAngleDelta(current: number, previous: number) {
   return ((current - previous + 540) % 360) - 180;
 }
 
+/** Converts portrait-phone beta rotation into rear-camera pitch. */
+export function getRelativeCameraPitch(currentBeta: number, baselineBeta: number) {
+  return baselineBeta - currentBeta;
+}
+
 export function getBandRow(band: CaptureBandId) {
   if (band === "upper") return 0;
   if (band === "middle") return 1;

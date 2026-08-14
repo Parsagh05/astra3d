@@ -9,9 +9,10 @@ describe("panorama processing route", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ready: true,
-      processor: "sharp",
+      processor: "opencv-feature-aligned",
       expectedFrames: 24,
       output: { width: 3072, height: 1536 },
+      pipeline: expect.arrayContaining(["sift-alignment", "graph-cut-seams", "multiband-blend"]),
     });
   });
 

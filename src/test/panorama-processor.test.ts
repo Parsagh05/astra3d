@@ -1,9 +1,11 @@
 import sharp from "sharp";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildCaptureSlots } from "@/lib/capture-plan";
 import {
   composeRoomPanorama,
+  processRoomPanorama,
   type ServerPanoramaFrame,
 } from "@/server/panorama-processor";
 
@@ -31,15 +33,24 @@ async function createFrames() {
 
 describe("laptop panorama processor", () => {
   it("creates a mobile-safe 2:1 JPEG with correctly ordered room bands", async () => {
-    const output = await composeRoomPanorama(await createFrames(), {
+    const { panorama: output, report } = await processRoomPanorama(await createFrames(), {
       width: 640,
       height: 320,
       quality: 90,
+      pythonCommand: process.execPath,
+      scriptPath: path.join(process.cwd(), "src", "test", "fixtures", "panorama-worker.mjs"),
     });
     const metadata = await sharp(output).metadata();
     const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
 
     expect(metadata).toMatchObject({ format: "jpeg", width: 640, height: 320 });
+    expect(report).toMatchObject({
+      method: "opencv-sift-cylindrical-v2",
+      alignmentScore: 0.875,
+      matchedPairs: 21,
+      fallbackPairs: 3,
+      coverage: 0.98,
+    });
 
     const pixel = (x: number, y: number) => {
       const offset = (y * info.width + x) * info.channels;
@@ -52,6 +63,18 @@ describe("laptop panorama processor", () => {
     expect(upper[2]).toBeGreaterThan(upper[0]);
     expect(middle[1]).toBeGreaterThan(middle[0]);
     expect(lower[0]).toBeGreaterThan(lower[2]);
+  });
+
+  it("returns actionable retake directions from failed quality analysis", async () => {
+    await expect(processRoomPanorama(await createFrames(), {
+      width: 640,
+      height: 320,
+      pythonCommand: process.execPath,
+      scriptPath: path.join(process.cwd(), "src", "test", "fixtures", "panorama-quality-error.mjs"),
+    })).rejects.toMatchObject({
+      code: "QUALITY_CHECK_FAILED",
+      retakeSequences: [4, 5],
+    });
   });
 
   it("rejects incomplete capture plans before decoding images", async () => {

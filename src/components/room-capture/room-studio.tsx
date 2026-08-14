@@ -25,11 +25,13 @@ import {
   CAPTURE_COLUMNS,
   captureLiveStill,
   getCaptureProgress,
+  getRelativeCameraPitch,
   getSignedAngleDelta,
   TOTAL_CAPTURE_SLOTS,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
 import {
+  PanoramaUploadError,
   processPanoramaOnServer,
   type PanoramaProcessingPhase,
 } from "./panorama-api";
@@ -295,6 +297,9 @@ export function RoomStudio() {
     setActiveCameraId("");
     bandCaptureCountRef.current = 0;
     activeBandIndexRef.current = 0;
+    orientationRef.current.baselineBeta = null;
+    orientationRef.current.lastBeta = null;
+    orientationRef.current.alignmentStartedAt = null;
     setStage("capture");
     window.requestAnimationFrame(() => void startCamera());
   };
@@ -309,14 +314,19 @@ export function RoomStudio() {
     setFrames((current) => {
       const slot = captureSlots[replacementSequence ?? current.length];
       if (!slot) return current;
-      const capturedFrame = { ...slot, dataUrl, capturedAt: Date.now() };
+      const capturedFrame = {
+        ...slot,
+        dataUrl,
+        capturedAt: Date.now(),
+        zoom: captureZoom,
+      };
       const next = replacementSequence === null
         ? [...current, capturedFrame]
         : current.map((frame) => frame.sequence === replacementSequence ? capturedFrame : frame);
       if (next.length === TOTAL_CAPTURE_SLOTS) stopCamera();
       return next;
     });
-  }, [stopCamera]);
+  }, [captureZoom, stopCamera]);
 
   const setAutomaticStatus = useCallback((status: AutoScanStatus) => {
     autoStatusRef.current = status;
@@ -405,7 +415,7 @@ export function RoomStudio() {
           : 0;
       const relativePitch =
         event.beta !== null && orientation.baselineBeta !== null
-          ? event.beta - orientation.baselineBeta
+          ? getRelativeCameraPitch(event.beta, orientation.baselineBeta)
           : pitchTarget;
       const pitchError = pitchTarget - relativePitch;
       const aligned = Math.abs(yawError) <= 5.5 && Math.abs(pitchError) <= 12;
@@ -524,14 +534,14 @@ export function RoomStudio() {
     }
   };
 
-  const beginRetake = async (sequence: number) => {
+  const beginRetake = async (sequence: number, keepError = false) => {
     if (!frames.some((frame) => frame.sequence === sequence)) return;
     clearAutoTimers();
     retakeSequenceRef.current = sequence;
     setRetakeSequence(sequence);
     captureModeRef.current = "manual";
     setCaptureMode("manual");
-    setError(null);
+    if (!keepError) setError(null);
     const slot = captureSlots[sequence];
     activeBandIndexRef.current = CAPTURE_BANDS.findIndex((band) => band.id === slot.band);
     bandCaptureCountRef.current = slot.column;
@@ -556,7 +566,7 @@ export function RoomStudio() {
     stopCamera();
 
     try {
-      const panorama = await processPanoramaOnServer(capturedFrames, (update) => {
+      const processed = await processPanoramaOnServer(capturedFrames, (update) => {
         setProcessingPhase(update.phase);
         setProcessingProgress(update.progress);
       });
@@ -565,8 +575,9 @@ export function RoomStudio() {
         name: roomName.trim() || "My room",
         createdAt: new Date().toISOString(),
         photoCount: capturedFrames.length,
-        panorama,
+        panorama: processed.panorama,
         processor: "laptop",
+        quality: processed.quality,
       };
       setRoom(generatedRoom);
       setFrames([]);
@@ -577,8 +588,18 @@ export function RoomStudio() {
       }
       setStage("result");
     } catch (processingError) {
-      setError(processingError instanceof Error ? processingError.message : "The room could not be assembled.");
       setStage("capture");
+      if (processingError instanceof PanoramaUploadError && processingError.retakeSequences.length > 0) {
+        const firstRetake = processingError.retakeSequences[0];
+        const suggestedSlot = captureSlots[firstRetake];
+        const suggestedBand = CAPTURE_BANDS.find((band) => band.id === suggestedSlot.band);
+        await beginRetake(firstRetake, true);
+        setError(
+          `${processingError.message} ${suggestedBand?.label ?? "Room"} direction ${suggestedSlot.column + 1} is ready to retake.`,
+        );
+      } else {
+        setError(processingError instanceof Error ? processingError.message : "The room could not be assembled.");
+      }
     }
   };
 
@@ -681,7 +702,7 @@ export function RoomStudio() {
 
             <div className={styles.privacyBanner}>
               <LockKeyhole aria-hidden="true" />
-              <div><strong>Private laptop processing</strong><p>Still photos go only to this connected Astra3D server, are processed in memory, and are never sent to a cloud service.</p></div>
+              <div><strong>Private laptop processing</strong><p>Still photos go only to this connected Astra3D server. Its temporary job files are erased immediately after processing and nothing is sent to a cloud service.</p></div>
             </div>
           </section>
         ) : null}
@@ -742,7 +763,7 @@ export function RoomStudio() {
                       <button
                         type="button"
                         aria-label="Zoom out"
-                        disabled={captureZoom <= zoomRange.min}
+                        disabled={frames.length > 0 || captureZoom <= zoomRange.min}
                         onClick={() => void changeCaptureZoom(-1)}
                       >
                         <Minus aria-hidden="true" />
@@ -751,7 +772,7 @@ export function RoomStudio() {
                       <button
                         type="button"
                         aria-label="Zoom in"
-                        disabled={captureZoom >= zoomRange.max}
+                        disabled={frames.length > 0 || captureZoom >= zoomRange.max}
                         onClick={() => void changeCaptureZoom(1)}
                       >
                         <Plus aria-hidden="true" />
@@ -974,12 +995,12 @@ export function RoomStudio() {
             <p>
               {processingPhase === "preparing" ? "Packaging the completed still photographs for your laptop." : null}
               {processingPhase === "uploading" ? "Sending the capture through this private local connection." : null}
-              {processingPhase === "processing" ? "Your laptop is normalizing, blending, and encoding the 2:1 panorama." : null}
+              {processingPhase === "processing" ? "Your laptop is matching visual features, correcting exposure, choosing seams, and multiband blending the panorama." : null}
               {processingPhase === "receiving" ? "Returning the optimized panorama to the phone viewer." : null}
             </p>
             <div className={styles.processingTrack}><span style={{ width: `${processingProgress}%` }} /></div>
             <strong>{processingProgress}%</strong>
-            <small>Keep this tab open. Photos are processed in laptop memory and are not retained by the server.</small>
+            <small>Keep this tab open. Private temporary job files are erased from the laptop immediately after this result or an error.</small>
           </section>
         ) : null}
 
