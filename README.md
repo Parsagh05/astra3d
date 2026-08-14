@@ -1,11 +1,16 @@
 # Astra3D — Interactive Spatial Commerce
 
-Astra3D is an original, experience-first application for a fictional spatial-commerce platform. Its centerpiece is a functional, three-room 360° retail flagship that visitors can explore with a pointer, keyboard, touchscreen, or static fallback. The tour sits inside a polished marketing experience with a progressively enhanced WebGL hero, industry showcases, an accessible demo-request flow, and a code-built product dashboard.
+Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, assembles the images into a private 2:1 panorama in the browser, saves the latest result locally, and opens it in an interactive 360° viewer. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
 
 The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
 
 ## Highlights
 
+- A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point.
+- Twenty-four guided camera positions: eight overlapping directions across eye-level, upper, and lower coverage bands.
+- Continuous rear-camera preview on a secure origin, with a native Android camera/file fallback on local-network HTTP.
+- Local 4096×2048 panorama assembly, overlap feathering, IndexedDB persistence, retake support, and JPG download. Capture images are not uploaded.
+- An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
 - Automatic static fallback for reduced motion, reduced data, unavailable WebGL, or a lost WebGL context.
 - A functional three-room flagship tour with linked 360° panoramas for Arrival, Collection, and Private Lounge.
@@ -39,6 +44,19 @@ npm run dev
 ```
 
 Open `http://localhost:3000`.
+
+The room creator is available at `http://localhost:3000/studio/`. Camera preview requires a secure browser context (`https://` or `localhost`). On a phone connected over ordinary LAN HTTP, the studio automatically uses an `<input capture="environment">` fallback that opens Android's native camera for each guided image.
+
+### Test from an Android phone on the same network
+
+Build and bind the static site to every local interface:
+
+```powershell
+npm.cmd run build
+.\node_modules\.bin\serve.cmd out -l tcp://0.0.0.0:4173 --no-clipboard
+```
+
+Find the PC's active IPv4 address with `ipconfig`, connect Android to the same router, and open `http://PC-IP:4173/studio/`. For example: `http://192.168.1.11:4173/studio/`. Allow Node.js through Windows Firewall on Private networks if prompted. The LAN-HTTP workflow uses the native camera fallback by design; use localhost through Android `adb reverse`, a trusted local HTTPS certificate, or an HTTPS tunnel when continuous in-page camera preview is required.
 
 ## Commands
 
@@ -108,9 +126,12 @@ The share controls create a URL for the currently hosted build and, where availa
 
 ## Demonstration boundaries
 
-This repository does not include authentication, a CMS, cloud storage, panorama capture or stitching, a no-code builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. In particular:
+This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
 
-- The Import, Customize, and Launch workflow describes the proposed product; visitors cannot upload scans or author tours in this release.
+- The capture studio assembles one 360° viewpoint using deterministic crop and overlap feathering. It does not yet perform feature-matched panorama stitching, depth estimation, ARCore/ARKit pose capture, NeRF reconstruction, or 3D Gaussian Splatting.
+- The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
+- IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.
+- The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
 - Control Center metrics, journey paths, engagement totals, and inventory rows are illustrative demo data. No visitor behavior is collected or stored.
 - Product prices and availability are fictional. Finish selection and the demo bag exist only in local React state and do not reserve stock, create a cart, place an order, or charge a payment method.
 - The demo-request form validates in the browser and shows a local confirmation, but it does not transmit or retain contact information.
