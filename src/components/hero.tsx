@@ -1,4 +1,5 @@
-import { ArrowDownRight, ArrowUpRight, Box, Orbit } from "lucide-react";
+import { ArrowUpRight, Box, Camera, Orbit } from "lucide-react";
+import Link from "next/link";
 import { TourTrigger } from "@/components/tour";
 import { HeroCanvas } from "./hero-canvas";
 
@@ -15,22 +16,22 @@ export function Hero() {
           <span>people can step into.</span>
         </h1>
         <p className="hero__lede">
-          Create, publish, and measure immersive stores and spaces that move
-          seamlessly across desktop, mobile, and tablet browsers.
+          Capture a room with the phone you already own, assemble a private
+          360° preview, and turn real spaces into experiences people can enter.
         </p>
         <div className="hero__actions">
-          <TourTrigger className="button">
-            Enter live tour
+          <Link className="button" href="/studio/">
+            Create your 360
             <ArrowUpRight aria-hidden="true" />
+          </Link>
+          <TourTrigger className="button button--ghost">
+            Enter live tour
+            <Camera aria-hidden="true" />
           </TourTrigger>
-          <a className="button button--ghost" href="#experiences">
-            Explore experiences
-            <ArrowDownRight aria-hidden="true" />
-          </a>
         </div>
         <div className="hero__signal" aria-label="Platform availability">
           <span>
-            <Box aria-hidden="true" /> 3-room live flagship
+            <Box aria-hidden="true" /> Phone-to-360 capture lab
           </span>
           <span>
             <Orbit aria-hidden="true" /> Web · Mobile · Tablet

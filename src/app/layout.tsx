@@ -6,9 +6,9 @@ import "@fontsource-variable/space-grotesk";
 import "./globals.css";
 
 const siteUrl = "https://astra3d.com";
-const siteTitle = "Astra3D — Interactive 360° Commerce Tour";
+const siteTitle = "Astra3D — Create 360° Spaces From Your Phone";
 const siteDescription =
-  "Explore a functional three-room 360° retail flagship with spatial navigation, interactive hotspots, a floor plan, and local product previews—directly in the browser.";
+  "Capture a room with guided smartphone photos, assemble a private 360° panorama, and explore immersive property and commerce experiences in the browser.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),

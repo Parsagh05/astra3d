@@ -1,12 +1,14 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { DemoTrigger } from "@/components/demo-request";
 
 const navigation = [
+  { href: "/studio/", label: "Create 360" },
   { href: "#platform", label: "Platform" },
   { href: "#experiences", label: "Experiences" },
   { href: "#workflow", label: "Workflow" },
@@ -38,15 +40,15 @@ export function SiteHeader() {
 
         <nav className="site-header__desktop-nav" aria-label="Primary navigation">
           {navigation.map((item) => (
-            <a key={item.href} href={item.href}>
+            <Link key={item.href} href={item.href}>
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
-        <DemoTrigger className="button button--compact site-header__cta">
-          Book a demo
-        </DemoTrigger>
+        <Link className="button button--compact site-header__cta" href="/studio/">
+          Scan a room
+        </Link>
 
         <button
           className="site-header__menu-button"
@@ -67,11 +69,14 @@ export function SiteHeader() {
         data-open={isOpen}
       >
         {navigation.map((item) => (
-          <a key={item.href} href={item.href} onClick={closeMenu}>
+          <Link key={item.href} href={item.href} onClick={closeMenu}>
             {item.label}
-          </a>
+          </Link>
         ))}
-        <DemoTrigger className="button" onOpen={closeMenu}>
+        <Link className="button" href="/studio/" onClick={closeMenu}>
+          Scan a room
+        </Link>
+        <DemoTrigger className="button button--ghost" onOpen={closeMenu}>
           Book a demo
         </DemoTrigger>
       </nav>
