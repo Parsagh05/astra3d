@@ -114,6 +114,69 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   ).toEqual([]);
 });
 
+test("keeps a generated room interactive when WebGL is unavailable", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chrome", "Canvas fallback behavior is shared across viewport sizes.");
+
+  await page.addInitScript(() => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(
+      this: HTMLCanvasElement,
+      contextId: string,
+      options?: unknown,
+    ) {
+      if (contextId === "webgl" || contextId === "webgl2") return null;
+      return originalGetContext.call(this, contextId, options);
+    } as typeof originalGetContext;
+  });
+
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const panorama = await fetch("/images/tours/flagship/arrival-2048.webp").then((response) => response.blob());
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("astra3d-room-studio", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("rooms")) {
+          request.result.createObjectStore("rooms", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction("rooms", "readwrite");
+      transaction.objectStore("rooms").put({
+        id: "latest-room",
+        name: "Compatibility room",
+        createdAt: new Date().toISOString(),
+        photoCount: 24,
+        panorama,
+        processor: "laptop",
+      });
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  });
+
+  await page.goto("/studio/");
+  await page.getByRole("button", { name: /Open saved room Compatibility room/ }).click();
+  await expect(page.getByRole("heading", { name: "Compatibility room" })).toBeVisible();
+  await expect(page.getByText("Compatible 360°", { exact: true })).toBeVisible();
+  const viewport = page.getByRole("application", { name: /Interactive 360 degree view/ });
+  const fallbackCanvas = viewport.getByRole("img", { name: /Flat panorama preview/ });
+  await expect(fallbackCanvas).toBeVisible();
+  await expect(viewport.locator('[data-panorama-ready="true"]')).toBeVisible();
+
+  const beforeDrag = await fallbackCanvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
+  const bounds = await viewport.boundingBox();
+  expect(bounds).not.toBeNull();
+  await page.mouse.move(bounds!.x + bounds!.width * 0.7, bounds!.y + bounds!.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(bounds!.x + bounds!.width * 0.25, bounds!.y + bounds!.height * 0.5, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => fallbackCanvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL())).not.toBe(beforeDrag);
+});
+
 test("captures live still targets and requires all three tilt bands", async ({ page }) => {
   test.setTimeout(50_000);
   await page.addInitScript(() => {
