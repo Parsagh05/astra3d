@@ -301,7 +301,7 @@
 .blueprintPhone strong {
   color: white;
   font-family: var(--font-display);
-  font-size: 4.3rem;
+  font-size: 3.15rem;
   font-weight: 450;
   letter-spacing: -0.08em;
   line-height: 1;
@@ -658,6 +658,58 @@
   color: var(--color-muted-strong);
   font-size: 0.75rem;
   transform: translateX(-50%);
+}
+
+.autoCaptureState {
+  position: absolute;
+  z-index: 5;
+  bottom: 1rem;
+  left: 50%;
+  display: grid;
+  min-width: min(24rem, calc(100% - 2rem));
+  justify-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(103, 220, 255, 0.32);
+  border-radius: 1rem;
+  background: rgba(3, 10, 19, 0.82);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+  text-align: center;
+  transform: translateX(-50%);
+  backdrop-filter: blur(16px);
+}
+
+.autoCaptureState span {
+  color: var(--color-cyan-soft);
+  font-size: 0.63rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.autoCaptureState strong {
+  margin-top: 0.2rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.autoCaptureState[data-status="countdown"] strong {
+  color: white;
+  font-size: 2.8rem;
+  line-height: 1;
+}
+
+.autoCaptureState[data-status="scanning"] {
+  border-color: rgba(99, 230, 190, 0.38);
+}
+
+.autoCaptureState[data-status="scanning"] span {
+  color: #8cf0d1;
+}
+
+.autoCaptureState small {
+  margin-top: 0.15rem;
+  color: var(--color-muted);
+  font-size: 0.68rem;
 }
 
 .directionRing {

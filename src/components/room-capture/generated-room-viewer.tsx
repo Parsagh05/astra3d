@@ -84,7 +84,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
           <p className={styles.kicker}>Locally generated room</p>
           <h1 id="generated-room-title">{room.name}</h1>
           <p>
-            Drag or swipe to look around. This 2:1 panorama was assembled on this device from {room.photoCount} guided photos.
+            Drag or swipe to look around. This 2:1 panorama was assembled on this device from {room.photoCount} automatically selected views.
           </p>
         </div>
         <span className={styles.localBadge}>Private · on device</span>
