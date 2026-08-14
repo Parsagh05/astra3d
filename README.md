@@ -9,6 +9,7 @@ The visual identity, environments, products, and copy were created for this proj
 - A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point.
 - A persistent rear-camera preview on a secure origin, with IMU-guided still capture at eight overlapping targets per sweep. The app never records a video.
 - Explicit eye-level, +35°, and −35° passes. Final assembly remains locked until all 24 target photos have been captured.
+- Switchable Automatic and Manual capture, preview-matched 1.0×–1.4× digital zoom, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress.
 - Local 4096×2048 panorama assembly, overlap feathering, IndexedDB persistence, retake support, and JPG download. Capture images are not uploaded.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
