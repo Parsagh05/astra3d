@@ -6,6 +6,7 @@ import {
   getSignedAngleDelta,
   getBandRow,
   getCaptureProgress,
+  getPitchDirection,
   getRelativeCameraPitch,
   TOTAL_CAPTURE_SLOTS,
 } from "@/components/room-capture/capture-utils";
@@ -52,5 +53,8 @@ describe("room capture plan", () => {
     expect(getRelativeCameraPitch(55, 90)).toBe(35);
     expect(getRelativeCameraPitch(90, 90)).toBe(0);
     expect(getRelativeCameraPitch(125, 90)).toBe(-35);
+    expect(getPitchDirection(55, 90)).toBe(-1);
+    expect(getPitchDirection(125, 90)).toBe(1);
+    expect(getRelativeCameraPitch(125, 90, getPitchDirection(125, 90))).toBe(35);
   });
 });

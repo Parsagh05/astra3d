@@ -50,9 +50,21 @@ export function getSignedAngleDelta(current: number, previous: number) {
   return ((current - previous + 540) % 360) - 180;
 }
 
-/** Converts portrait-phone beta rotation into rear-camera pitch. */
-export function getRelativeCameraPitch(currentBeta: number, baselineBeta: number) {
-  return baselineBeta - currentBeta;
+export type PitchDirection = -1 | 1;
+
+/** Learns which beta direction the current phone reports while tilting up. */
+export function getPitchDirection(currentBeta: number, baselineBeta: number): PitchDirection {
+  return currentBeta >= baselineBeta ? 1 : -1;
+}
+
+/** Converts device beta rotation into rear-camera pitch after sign calibration. */
+export function getRelativeCameraPitch(
+  currentBeta: number,
+  baselineBeta: number,
+  direction: PitchDirection = -1,
+) {
+  const pitch = (currentBeta - baselineBeta) * direction;
+  return pitch === 0 ? 0 : pitch;
 }
 
 export function getBandRow(band: CaptureBandId) {

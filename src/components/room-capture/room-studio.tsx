@@ -26,6 +26,7 @@ import {
   CAPTURE_COLUMNS,
   captureLiveStill,
   getCaptureProgress,
+  getPitchDirection,
   getRelativeCameraPitch,
   getSignedAngleDelta,
   TOTAL_CAPTURE_SLOTS,
@@ -94,6 +95,7 @@ export function RoomStudio() {
     accumulated: 0,
     lastEventAt: 0,
     baselineBeta: null as number | null,
+    pitchDirection: null as -1 | 1 | null,
     lastBeta: null as number | null,
     alignmentStartedAt: null as number | null,
   });
@@ -345,6 +347,7 @@ export function RoomStudio() {
     bandCaptureCountRef.current = 0;
     activeBandIndexRef.current = 0;
     orientationRef.current.baselineBeta = null;
+    orientationRef.current.pitchDirection = null;
     orientationRef.current.lastBeta = null;
     orientationRef.current.alignmentStartedAt = null;
     setStage("capture");
@@ -460,9 +463,24 @@ export function RoomStudio() {
         : activeBandIndexRef.current === 2
           ? -35
           : 0;
+      if (
+        activeBandIndexRef.current === 1 &&
+        orientation.pitchDirection === null &&
+        event.beta !== null &&
+        orientation.baselineBeta !== null &&
+        Math.abs(event.beta - orientation.baselineBeta) >= 8
+      ) {
+        // The upper sweep explicitly asks the user to point at the ceiling,
+        // so this first deliberate tilt safely calibrates the device's sign.
+        orientation.pitchDirection = getPitchDirection(event.beta, orientation.baselineBeta);
+      }
       const relativePitch =
         event.beta !== null && orientation.baselineBeta !== null
-          ? getRelativeCameraPitch(event.beta, orientation.baselineBeta)
+          ? getRelativeCameraPitch(
+              event.beta,
+              orientation.baselineBeta,
+              orientation.pitchDirection ?? -1,
+            )
           : pitchTarget;
       const pitchError = pitchTarget - relativePitch;
       const aligned = Math.abs(yawError) <= 5.5 && Math.abs(pitchError) <= 12;

@@ -4,6 +4,7 @@ export {
   CAPTURE_COLUMNS,
   getBandRow,
   getCaptureProgress,
+  getPitchDirection,
   getRelativeCameraPitch,
   getSignedAngleDelta,
   TOTAL_CAPTURE_SLOTS,
