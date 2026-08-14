@@ -31,14 +31,27 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
     yaw: number;
     pitch: number;
   } | null>(null);
-  const [panoramaUrl] = useState(() => URL.createObjectURL(room.panorama));
+  const [panoramaUrl, setPanoramaUrl] = useState<string | null>(null);
   const [view, setView] = useState(initialView);
   const [ready, setReady] = useState(false);
   const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
-    return () => URL.revokeObjectURL(panoramaUrl);
-  }, [panoramaUrl]);
+    let active = true;
+    const nextPanoramaUrl = URL.createObjectURL(room.panorama);
+
+    queueMicrotask(() => {
+      if (!active) return;
+      setPanoramaUrl(nextPanoramaUrl);
+      setReady(false);
+      setFallback(false);
+    });
+
+    return () => {
+      active = false;
+      URL.revokeObjectURL(nextPanoramaUrl);
+    };
+  }, [room.panorama]);
 
   const updateView = (next: typeof initialView) => {
     setView(clampPanoramaView(next));
@@ -71,6 +84,8 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
   };
 
   const handleDownload = () => {
+    if (!panoramaUrl) return;
+
     const link = document.createElement("a");
     link.href = panoramaUrl;
     link.download = `${room.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "astra3d-room"}-360.jpg`;
@@ -116,17 +131,19 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
           if (event.key === "Home") updateView(initialView);
         }}
       >
-        <PanoramaCanvas
-          active
-          fov={view.fov}
-          pitch={view.pitch}
-          yaw={view.yaw}
-          src={panoramaUrl}
-          posterSrc={panoramaUrl}
-          posterAlt={`Flat panorama preview of ${room.name}`}
-          onReady={() => setReady(true)}
-          onFallbackChange={setFallback}
-        />
+        {panoramaUrl ? (
+          <PanoramaCanvas
+            active
+            fov={view.fov}
+            pitch={view.pitch}
+            yaw={view.yaw}
+            src={panoramaUrl}
+            posterSrc={panoramaUrl}
+            posterAlt={`Flat panorama preview of ${room.name}`}
+            onReady={() => setReady(true)}
+            onFallbackChange={setFallback}
+          />
+        ) : null}
         <div className={styles.viewerShade} aria-hidden="true" />
         {!ready && !fallback ? <p className={styles.viewerStatus}>Preparing your room…</p> : null}
         {fallback ? (
@@ -158,7 +175,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
       </div>
 
       <div className={styles.resultActions}>
-        <button className={styles.primaryButton} type="button" onClick={handleDownload}>
+        <button className={styles.primaryButton} type="button" onClick={handleDownload} disabled={!panoramaUrl}>
           <Download aria-hidden="true" /> Download 360 JPG
         </button>
         <button className={styles.secondaryButton} type="button" onClick={onRetake}>

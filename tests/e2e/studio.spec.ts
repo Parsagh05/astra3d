@@ -301,6 +301,7 @@ test("assembles the 24 guided stills into a locally generated room", async ({ pa
 
   await page.getByRole("button", { name: /Build my 360/i }).click();
   await expect(page.getByRole("heading", { name: "Test living room" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-panorama-ready="true"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Download 360 JPG/i })).toBeEnabled();
   await expect(page.getByText("Private · on device")).toBeVisible();
 });
