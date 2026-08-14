@@ -7,8 +7,8 @@ The visual identity, environments, products, and copy were created for this proj
 ## Highlights
 
 - A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point.
-- Twenty-four guided camera positions: eight overlapping directions across eye-level, upper, and lower coverage bands.
-- Continuous rear-camera preview on a secure origin, with a native Android camera/file fallback on local-network HTTP.
+- Continuous rear-camera scanning on a secure origin, with IMU-guided automatic capture at eight overlapping angles per sweep.
+- One native Android video fallback on local-network HTTP; the app extracts 24 useful views across eye-level, upper, and lower sweeps automatically.
 - Local 4096×2048 panorama assembly, overlap feathering, IndexedDB persistence, retake support, and JPG download. Capture images are not uploaded.
 - An interactive generated-room viewer with drag, swipe, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior.
 - One focused React Three Fiber scene with capped pixel ratio, mobile quality controls, offscreen pausing, and limited pointer/touch movement.
@@ -45,7 +45,7 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-The room creator is available at `http://localhost:3000/studio/`. Camera preview requires a secure browser context (`https://` or `localhost`). On a phone connected over ordinary LAN HTTP, the studio automatically uses an `<input capture="environment">` fallback that opens Android's native camera for each guided image.
+The room creator is available at `http://localhost:3000/studio/`. Continuous camera preview and motion-sensor capture require a secure browser context (`https://` or `localhost`). On a phone connected over ordinary LAN HTTP, the studio automatically uses an `<input capture="environment" accept="video/*">` fallback that records one native Android video. Record three slow rotations from the same point—eye level, tilted upward, then tilted downward—and the app extracts the panorama views locally.
 
 ### Test from an Android phone on the same network
 
@@ -56,7 +56,7 @@ npm.cmd run build
 .\node_modules\.bin\serve.cmd out -l tcp://0.0.0.0:4173 --no-clipboard
 ```
 
-Find the PC's active IPv4 address with `ipconfig`, connect Android to the same router, and open `http://PC-IP:4173/studio/`. For example: `http://192.168.1.11:4173/studio/`. Allow Node.js through Windows Firewall on Private networks if prompted. The LAN-HTTP workflow uses the native camera fallback by design; use localhost through Android `adb reverse`, a trusted local HTTPS certificate, or an HTTPS tunnel when continuous in-page camera preview is required.
+Find the PC's active IPv4 address with `ipconfig`, connect Android to the same router, and open `http://PC-IP:4173/studio/`. For example: `http://192.168.1.11:4173/studio/`. Allow Node.js through Windows Firewall on Private networks if prompted. The LAN-HTTP workflow records one native-camera video by design; use localhost through Android `adb reverse`, a trusted local HTTPS certificate, or an HTTPS tunnel when continuous in-page camera and IMU guidance are required.
 
 ## Commands
 
@@ -128,7 +128,7 @@ The share controls create a URL for the currently hosted build and, where availa
 
 This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
 
-- The capture studio assembles one 360° viewpoint using deterministic crop and overlap feathering. It does not yet perform feature-matched panorama stitching, depth estimation, ARCore/ARKit pose capture, NeRF reconstruction, or 3D Gaussian Splatting.
+- The capture studio samples a continuous video or live camera feed and assembles one 360° viewpoint using deterministic crop and overlap feathering. Browser device orientation provides angular guidance only; it is not ARCore/ARKit VIO and does not calculate `(x, y, z)` movement. The app does not yet perform feature-matched stitching, depth estimation, NeRF reconstruction, or 3D Gaussian Splatting.
 - The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
 - IndexedDB keeps only the latest generated panorama in the current browser profile. Clearing site data removes it; downloading the JPG is the durable export path.
 - The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
