@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import type { PanoramaViewInput } from "./tour-math";
+import { PanoramaFallbackCanvas } from "./panorama-fallback-canvas";
 
 const LazyPanoramaScene = dynamic(
   () => import("./panorama-scene").then((module) => module.PanoramaScene),
@@ -55,6 +56,7 @@ export type PanoramaCanvasProps = PanoramaViewInput & {
   posterAlt: string;
   active?: boolean;
   className?: string;
+  interactiveFallback?: boolean;
   style?: CSSProperties;
   onContextLost?: () => void;
   onContextRestored?: () => void;
@@ -147,6 +149,7 @@ export function PanoramaCanvas({
   className,
   fieldOfView,
   fov,
+  interactiveFallback = false,
   onContextLost,
   onContextRestored,
   onFallbackChange,
@@ -202,19 +205,31 @@ export function PanoramaCanvas({
     <div
       ref={rootRef}
       className={className}
-      data-panorama-ready={canRender && ready ? "true" : "false"}
+      data-panorama-ready={active && ready ? "true" : "false"}
       data-panorama-fallback={fallback ? "true" : "false"}
       style={{ height: "100%", position: "relative", width: "100%", ...style }}
     >
-      <Image
-        alt={posterAlt}
-        fill
-        priority={false}
-        sizes="100vw"
-        src={posterSrc}
-        style={{ objectFit: "cover", opacity: canRender && ready ? 0 : 1 }}
-        unoptimized
-      />
+      {fallback && interactiveFallback ? (
+        <PanoramaFallbackCanvas
+          alt={posterAlt}
+          fov={resolvedFov}
+          onFailure={handleFailure}
+          onReady={handleReady}
+          pitch={pitch}
+          src={posterSrc}
+          yaw={yaw}
+        />
+      ) : (
+        <Image
+          alt={posterAlt}
+          fill
+          priority={false}
+          sizes="100vw"
+          src={posterSrc}
+          style={{ objectFit: "cover", opacity: canRender && ready ? 0 : 1 }}
+          unoptimized
+        />
+      )}
       {canRender ? (
         <div
           aria-hidden="true"

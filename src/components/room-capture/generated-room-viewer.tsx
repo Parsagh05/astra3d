@@ -58,7 +58,6 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (fallback) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       pointerId: event.pointerId,
@@ -116,12 +115,10 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
         onPointerUp={stopDragging}
         onPointerCancel={stopDragging}
         onWheel={(event) => {
-          if (fallback) return;
           event.preventDefault();
           updateView({ ...view, fov: view.fov + event.deltaY * 0.025 });
         }}
         onKeyDown={(event) => {
-          if (fallback) return;
           if (event.key === "ArrowLeft") updateView({ ...view, yaw: view.yaw - 8 });
           if (event.key === "ArrowRight") updateView({ ...view, yaw: view.yaw + 8 });
           if (event.key === "ArrowUp") updateView({ ...view, pitch: view.pitch + 6 });
@@ -135,6 +132,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
           <PanoramaCanvas
             active
             fov={view.fov}
+            interactiveFallback
             pitch={view.pitch}
             yaw={view.yaw}
             src={panoramaUrl}
@@ -145,12 +143,9 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
           />
         ) : null}
         <div className={styles.viewerShade} aria-hidden="true" />
-        {!ready && !fallback ? <p className={styles.viewerStatus}>Preparing your room…</p> : null}
-        {fallback ? (
-          <p className={styles.viewerStatus}>Interactive graphics could not start. Your panorama is safely shown as a flat preview.</p>
-        ) : null}
+        {!ready ? <p className={styles.viewerStatus}>{fallback ? "Preparing compatible 360° viewer…" : "Preparing your room…"}</p> : null}
         <div className={styles.viewerLabel}>
-          <span><i /> {fallback ? "Flat preview" : "360° room"}</span>
+          <span><i /> {fallback ? "Compatible 360°" : "WebGL 360°"}</span>
           <span>Swipe to look</span>
         </div>
       </div>
