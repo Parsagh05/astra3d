@@ -1544,6 +1544,23 @@
   transform: translateY(50%);
 }
 
+.compatibilityNotice {
+  max-width: 46rem;
+  margin: 2.6rem auto 0;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(103, 220, 255, 0.2);
+  border-radius: 0.9rem;
+  background: rgba(8, 25, 42, 0.72);
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.compatibilityNotice strong {
+  color: var(--color-cyan-soft);
+}
+
 .viewerControls button {
   display: grid;
   width: 2.8rem;

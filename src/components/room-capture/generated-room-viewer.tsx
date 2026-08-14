@@ -169,6 +169,12 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
         </button>
       </div>
 
+      {fallback ? (
+        <p className={styles.compatibilityNotice} role="status">
+          <strong>Compatibility viewer active.</strong> WebGL is unavailable in this browser session, so Astra3D is using the compatible 360° viewer. Swipe, zoom, and fullscreen still work.
+        </p>
+      ) : null}
+
       <div className={styles.resultActions}>
         <button className={styles.primaryButton} type="button" onClick={handleDownload} disabled={!panoramaUrl}>
           <Download aria-hidden="true" /> Download 360 JPG

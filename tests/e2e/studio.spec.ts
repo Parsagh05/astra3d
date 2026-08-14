@@ -162,6 +162,7 @@ test("keeps a generated room interactive when WebGL is unavailable", async ({ pa
   await page.getByRole("button", { name: /Open saved room Compatibility room/ }).click();
   await expect(page.getByRole("heading", { name: "Compatibility room" })).toBeVisible();
   await expect(page.getByText("Compatible 360°", { exact: true })).toBeVisible();
+  await expect(page.getByText(/WebGL is unavailable in this browser session/)).toBeVisible();
   const viewport = page.getByRole("application", { name: /Interactive 360 degree view/ });
   const fallbackCanvas = viewport.getByRole("img", { name: /Flat panorama preview/ });
   await expect(fallbackCanvas).toBeVisible();
