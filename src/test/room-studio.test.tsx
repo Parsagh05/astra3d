@@ -15,7 +15,7 @@ describe("RoomStudio", () => {
         name: "Scan once. Look around forever.",
       }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Your scan stays on this device")).toBeInTheDocument();
+    expect(screen.getByText("Private laptop processing")).toBeInTheDocument();
 
     await user.clear(screen.getByRole("textbox", { name: "Room name" }));
     await user.type(screen.getByRole("textbox", { name: "Room name" }), "Living room");

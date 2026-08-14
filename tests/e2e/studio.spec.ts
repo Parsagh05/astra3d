@@ -55,7 +55,7 @@ test("offers a secure guided phone capture route without horizontal overflow", a
       name: "Scan once. Look around forever.",
     }),
   ).toBeVisible();
-  await expect(page.getByText("Your scan stays on this device")).toBeVisible();
+  await expect(page.getByText("Private laptop processing")).toBeVisible();
 
   const captureAccessibility = await new AxeBuilder({ page }).analyze();
   expect(
@@ -144,13 +144,13 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   await expect(page.getByRole("button", { name: "Begin +35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, 8);
+  await beginGuidedBand(page, "Begin +35° capture", 125);
+  await completeGuidedBand(page, 125, 8);
   await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, 16);
+  await beginGuidedBand(page, "Begin −35° capture", 55);
+  await completeGuidedBand(page, 55, 16);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
 });
@@ -273,7 +273,7 @@ test("uses real 0.6x hardware zoom and exposes an available ultrawide lens", asy
   await expect(lensPicker).toBeDisabled();
 });
 
-test("assembles the 24 guided stills into a locally generated room", async ({ page }, testInfo) => {
+test("processes the 24 guided stills on the laptop and returns a generated room", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
   test.setTimeout(55_000);
 
@@ -294,14 +294,20 @@ test("assembles the 24 guided stills into a locally generated room", async ({ pa
 
   await beginGuidedBand(page, "Begin eye-level capture", 90);
   await completeGuidedBand(page, 90, 0);
-  await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, 8);
-  await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, 16);
+  await beginGuidedBand(page, "Begin +35° capture", 125);
+  await completeGuidedBand(page, 125, 8);
+  await beginGuidedBand(page, "Begin −35° capture", 55);
+  await completeGuidedBand(page, 55, 16);
 
+  const processingResponse = page.waitForResponse((response) =>
+    response.url().endsWith("/api/panorama") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: /Build my 360/i }).click();
+  const response = await processingResponse;
+  expect(response.status()).toBe(200);
+  expect(response.headers()["x-astra3d-processor"]).toBe("laptop-sharp");
   await expect(page.getByRole("heading", { name: "Test living room" })).toBeVisible({ timeout: 30_000 });
   await expect(page.locator('[data-panorama-ready="true"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Download 360 JPG/i })).toBeEnabled();
-  await expect(page.getByText("Private · on device")).toBeVisible();
+  await expect(page.getByText("Private · laptop processed")).toBeVisible();
 });
