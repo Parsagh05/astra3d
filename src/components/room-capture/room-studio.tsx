@@ -41,12 +41,31 @@ type StudioStage = "intro" | "capture" | "processing" | "result";
 type CameraMode = "idle" | "requesting" | "live" | "denied";
 type AutoScanStatus = "idle" | "countdown" | "scanning" | "between" | "complete";
 type CaptureMode = "automatic" | "manual";
+type CameraLens = { deviceId: string; label: string };
+type ZoomRange = { min: number; max: number; step: number; hardware: boolean };
+
+type ExtendedTrackCapabilities = MediaTrackCapabilities & {
+  zoom?: { min?: number; max?: number; step?: number };
+};
+
+type ExtendedTrackSettings = MediaTrackSettings & { zoom?: number };
+type ZoomConstraint = MediaTrackConstraintSet & { zoom: number };
 
 type OrientationEventConstructor = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<"granted" | "denied">;
 };
 
 const captureSlots = buildCaptureSlots();
+const defaultZoomRange: ZoomRange = { min: 1, max: 1.4, step: 0.1, hardware: false };
+
+function getCameraLabel(device: MediaDeviceInfo, index: number) {
+  const label = device.label.trim();
+  const normalized = label.toLowerCase();
+  if (/ultra|0[.,]5|0[.,]6/.test(normalized)) return "0.6× Ultra";
+  if (/tele|zoom/.test(normalized)) return "Telephoto";
+  if (/front|user|selfie/.test(normalized)) return "Front camera";
+  return label || `Camera ${index + 1}`;
+}
 
 export function RoomStudio() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -80,6 +99,9 @@ export function RoomStudio() {
   const [captureMode, setCaptureMode] = useState<CaptureMode>("automatic");
   const [retakeSequence, setRetakeSequence] = useState<number | null>(null);
   const [captureZoom, setCaptureZoom] = useState(1);
+  const [zoomRange, setZoomRange] = useState<ZoomRange>(defaultZoomRange);
+  const [cameraLenses, setCameraLenses] = useState<CameraLens[]>([]);
+  const [activeCameraId, setActiveCameraId] = useState("");
   const [countdown, setCountdown] = useState(3);
   const [guidance, setGuidance] = useState({
     aligned: false,
@@ -132,7 +154,7 @@ export function RoomStudio() {
 
   useEffect(() => stopCamera, [stopCamera]);
 
-  const startCamera = useCallback(async () => {
+  const startCamera = useCallback(async (requestedDeviceId?: string) => {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
       setCameraMode("denied");
@@ -143,15 +165,60 @@ export function RoomStudio() {
     setLiveCameraAvailable(true);
     setCameraMode("requesting");
     try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          facingMode: { ideal: "environment" },
+          ...(requestedDeviceId
+            ? { deviceId: { exact: requestedDeviceId } }
+            : { facingMode: { ideal: "environment" } }),
           width: { ideal: 1920 },
           height: { ideal: 1440 },
         },
       });
       streamRef.current = stream;
+      const videoTrack = stream.getVideoTracks()[0];
+      const capabilities = videoTrack?.getCapabilities?.() as ExtendedTrackCapabilities | undefined;
+      const settings = videoTrack?.getSettings?.() as ExtendedTrackSettings | undefined;
+      const hardwareZoom = capabilities?.zoom;
+      const hardwareMin = Number(hardwareZoom?.min);
+      const hardwareMax = Number(hardwareZoom?.max);
+      const supportsHardwareZoom = Number.isFinite(hardwareMin) &&
+        Number.isFinite(hardwareMax) &&
+        hardwareMax >= hardwareMin &&
+        hardwareMin <= 1.4 &&
+        hardwareMax >= 0.6;
+      const nextZoomRange: ZoomRange = supportsHardwareZoom
+        ? {
+            min: Math.max(0.6, hardwareMin),
+            max: Math.min(1.4, hardwareMax),
+            step: Math.max(0.1, Number(hardwareZoom?.step) || 0.1),
+            hardware: true,
+          }
+        : defaultZoomRange;
+      const requestedZoom = Number(settings?.zoom);
+      const initialZoom = Number.isFinite(requestedZoom)
+        ? Math.max(nextZoomRange.min, Math.min(nextZoomRange.max, requestedZoom))
+        : Math.max(nextZoomRange.min, Math.min(nextZoomRange.max, 1));
+      setZoomRange(nextZoomRange);
+      setCaptureZoom(Number(initialZoom.toFixed(1)));
+
+      const currentDeviceId = settings?.deviceId || requestedDeviceId || "";
+      setActiveCameraId(currentDeviceId);
+      if (navigator.mediaDevices.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = devices.filter((device) => device.kind === "videoinput");
+        const nonFrontCameras = cameras.filter((device) =>
+          !/front|user|selfie/i.test(device.label),
+        );
+        const selectableCameras = nonFrontCameras.length > 0 ? nonFrontCameras : cameras;
+        setCameraLenses(selectableCameras.map((device, index) => ({
+          deviceId: device.deviceId,
+          label: getCameraLabel(device, index),
+        })));
+      } else {
+        setCameraLenses([]);
+      }
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
@@ -177,6 +244,37 @@ export function RoomStudio() {
     }
   }, []);
 
+  const changeCaptureZoom = async (direction: -1 | 1) => {
+    const nextZoom = Math.max(
+      zoomRange.min,
+      Math.min(
+        zoomRange.max,
+        Number((captureZoom + direction * zoomRange.step).toFixed(1)),
+      ),
+    );
+    if (nextZoom === captureZoom) return;
+
+    if (zoomRange.hardware) {
+      const track = streamRef.current?.getVideoTracks()[0];
+      try {
+        await track?.applyConstraints({
+          advanced: [{ zoom: nextZoom } as ZoomConstraint],
+        });
+      } catch {
+        setError("This browser reported camera zoom but could not apply that level.");
+        return;
+      }
+    }
+    setCaptureZoom(nextZoom);
+  };
+
+  const switchCameraLens = async (deviceId: string) => {
+    if (!deviceId || deviceId === activeCameraId || frames.length > 0) return;
+    clearAutoTimers();
+    setAutomaticStatus("idle");
+    await startCamera(deviceId);
+  };
+
   const beginCapture = () => {
     clearAutoTimers();
     setFrames([]);
@@ -188,6 +286,9 @@ export function RoomStudio() {
     captureModeRef.current = "automatic";
     setCaptureMode("automatic");
     setCaptureZoom(1);
+    setZoomRange(defaultZoomRange);
+    setCameraLenses([]);
+    setActiveCameraId("");
     bandCaptureCountRef.current = 0;
     activeBandIndexRef.current = 0;
     setStage("capture");
@@ -223,7 +324,10 @@ export function RoomStudio() {
 
     try {
       const isRetaking = retakeSequenceRef.current !== null;
-      addFrame(captureLiveStill(videoRef.current, captureZoom));
+      addFrame(captureLiveStill(
+        videoRef.current,
+        zoomRange.hardware ? 1 : captureZoom,
+      ));
       if (isRetaking) {
         setAutomaticStatus(captureComplete ? "complete" : "scanning");
         return;
@@ -250,7 +354,7 @@ export function RoomStudio() {
       setAutomaticStatus("idle");
       setError(captureError instanceof Error ? captureError.message : "Automatic capture stopped unexpectedly.");
     }
-  }, [addFrame, captureComplete, captureZoom, clearAutoTimers, setAutomaticStatus]);
+  }, [addFrame, captureComplete, captureZoom, clearAutoTimers, setAutomaticStatus, zoomRange.hardware]);
 
   useEffect(() => {
     const handleOrientation = (event: DeviceOrientationEvent) => {
@@ -483,6 +587,9 @@ export function RoomStudio() {
     captureModeRef.current = "automatic";
     setCaptureMode("automatic");
     setCaptureZoom(1);
+    setZoomRange(defaultZoomRange);
+    setCameraLenses([]);
+    setActiveCameraId("");
     setError(null);
     try {
       await deleteGeneratedRoom();
@@ -604,7 +711,9 @@ export function RoomStudio() {
                       muted
                       playsInline
                       aria-label="Rear camera preview"
-                      style={{ "--capture-zoom": captureZoom } as React.CSSProperties}
+                      style={{
+                        "--capture-zoom": zoomRange.hardware ? 1 : captureZoom,
+                      } as React.CSSProperties}
                     />
                   ) : (
                     <div className={styles.fileCameraFallback}>
@@ -626,8 +735,8 @@ export function RoomStudio() {
                       <button
                         type="button"
                         aria-label="Zoom out"
-                        disabled={captureZoom <= 1}
-                        onClick={() => setCaptureZoom((zoom) => Math.max(1, Number((zoom - 0.1).toFixed(1))))}
+                        disabled={captureZoom <= zoomRange.min}
+                        onClick={() => void changeCaptureZoom(-1)}
                       >
                         <Minus aria-hidden="true" />
                       </button>
@@ -635,12 +744,27 @@ export function RoomStudio() {
                       <button
                         type="button"
                         aria-label="Zoom in"
-                        disabled={captureZoom >= 1.4}
-                        onClick={() => setCaptureZoom((zoom) => Math.min(1.4, Number((zoom + 0.1).toFixed(1))))}
+                        disabled={captureZoom >= zoomRange.max}
+                        onClick={() => void changeCaptureZoom(1)}
                       >
                         <Plus aria-hidden="true" />
                       </button>
                     </div>
+                  ) : null}
+                  {cameraMode === "live" && cameraLenses.length > 1 ? (
+                    <label className={styles.lensPicker}>
+                      <span>Camera lens</span>
+                      <select
+                        aria-label="Camera lens"
+                        value={activeCameraId || cameraLenses[0]?.deviceId}
+                        disabled={frames.length > 0}
+                        onChange={(event) => void switchCameraLens(event.target.value)}
+                      >
+                        {cameraLenses.map((lens) => (
+                          <option key={lens.deviceId} value={lens.deviceId}>{lens.label}</option>
+                        ))}
+                      </select>
+                    </label>
                   ) : null}
                   {cameraMode === "requesting" ? <p className={styles.cameraLoading}>Starting rear camera…</p> : null}
                   {cameraMode === "live" && autoScanStatus === "scanning" ? (

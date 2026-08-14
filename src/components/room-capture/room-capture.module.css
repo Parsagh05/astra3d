@@ -705,6 +705,46 @@
   text-align: center;
 }
 
+.lensPicker {
+  position: absolute;
+  z-index: 7;
+  top: 4.35rem;
+  right: 1rem;
+  display: grid;
+  min-width: 8.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid rgba(212, 236, 253, 0.18);
+  border-radius: 0.8rem;
+  background: rgba(3, 10, 19, 0.8);
+  backdrop-filter: blur(12px);
+}
+
+.lensPicker span {
+  color: var(--color-muted);
+  font-size: 0.55rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lensPicker select {
+  min-height: 2rem;
+  border: 0;
+  background: transparent;
+  color: var(--color-ice);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.lensPicker select:disabled {
+  opacity: 0.58;
+}
+
+.lensPicker option {
+  background: #07111f;
+  color: white;
+}
+
 .autoCaptureState {
   position: absolute;
   z-index: 5;
