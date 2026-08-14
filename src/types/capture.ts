@@ -19,4 +19,5 @@ export type GeneratedRoomRecord = {
   createdAt: string;
   photoCount: number;
   panorama: Blob;
+  processor?: "device" | "laptop";
 };

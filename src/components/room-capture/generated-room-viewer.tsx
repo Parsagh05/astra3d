@@ -96,13 +96,13 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
     <section className={styles.result} aria-labelledby="generated-room-title">
       <div className={styles.resultHeader}>
         <div>
-          <p className={styles.kicker}>Locally generated room</p>
+          <p className={styles.kicker}>Privately generated room</p>
           <h1 id="generated-room-title">{room.name}</h1>
           <p>
-            Drag or swipe to look around. This 2:1 panorama was assembled on this device from {room.photoCount} automatically selected views.
+            Drag or swipe to look around. This 2:1 panorama was assembled {room.processor === "laptop" ? "by your connected laptop" : "on this device"} from {room.photoCount} automatically selected views.
           </p>
         </div>
-        <span className={styles.localBadge}>Private · on device</span>
+        <span className={styles.localBadge}>Private · {room.processor === "laptop" ? "laptop processed" : "on device"}</span>
       </div>
 
       <div
@@ -147,7 +147,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
         <div className={styles.viewerShade} aria-hidden="true" />
         {!ready && !fallback ? <p className={styles.viewerStatus}>Preparing your room…</p> : null}
         {fallback ? (
-          <p className={styles.viewerStatus}>WebGL is unavailable. The generated panorama is shown as a flat image.</p>
+          <p className={styles.viewerStatus}>Interactive graphics could not start. Your panorama is safely shown as a flat preview.</p>
         ) : null}
         <div className={styles.viewerLabel}>
           <span><i /> {fallback ? "Flat preview" : "360° room"}</span>

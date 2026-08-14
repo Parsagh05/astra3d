@@ -37,7 +37,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "node ./node_modules/serve/build/main.js out -l tcp://127.0.0.1:4173 --no-clipboard",
+    command: "npm run preview",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

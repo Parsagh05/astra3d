@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "preview": "serve out -l tcp://127.0.0.1:4173 --no-clipboard",
+    "start": "next start",
+    "preview": "next start --hostname 127.0.0.1 --port 4173",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -24,6 +25,7 @@
     "next": "16.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "sharp": "0.35.3",
     "three": "^0.185.1"
   },
   "devDependencies": {
@@ -40,7 +42,6 @@
     "eslint": "9.39.2",
     "eslint-config-next": "16.3.0",
     "jsdom": "^29.1.1",
-    "serve": "^14.2.6",
     "typescript": "5.9.3",
     "vitest": "^4.1.10"
   }

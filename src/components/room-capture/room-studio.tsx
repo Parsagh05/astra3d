@@ -26,10 +26,13 @@ import {
   captureLiveStill,
   getCaptureProgress,
   getSignedAngleDelta,
-  stitchRoomPanorama,
   TOTAL_CAPTURE_SLOTS,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
+import {
+  processPanoramaOnServer,
+  type PanoramaProcessingPhase,
+} from "./panorama-api";
 import {
   deleteGeneratedRoom,
   loadGeneratedRoom,
@@ -92,6 +95,7 @@ export function RoomStudio() {
   const [room, setRoom] = useState<GeneratedRoomRecord | null>(null);
   const [loadingSavedRoom, setLoadingSavedRoom] = useState(true);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [processingPhase, setProcessingPhase] = useState<PanoramaProcessingPhase>("preparing");
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [liveCameraAvailable, setLiveCameraAvailable] = useState(false);
@@ -395,9 +399,9 @@ export function RoomStudio() {
       const yawTarget = bandCaptureCountRef.current * (360 / CAPTURE_COLUMNS);
       const yawError = yawTarget - Math.abs(orientation.accumulated);
       const pitchTarget = activeBandIndexRef.current === 1
-        ? -35
+        ? 35
         : activeBandIndexRef.current === 2
-          ? 35
+          ? -35
           : 0;
       const relativePitch =
         event.beta !== null && orientation.baselineBeta !== null
@@ -547,12 +551,14 @@ export function RoomStudio() {
     }
     setStage("processing");
     setProcessingProgress(0);
+    setProcessingPhase("preparing");
     setError(null);
     stopCamera();
 
     try {
-      const panorama = await stitchRoomPanorama(capturedFrames, (progress) => {
-        setProcessingProgress(progress);
+      const panorama = await processPanoramaOnServer(capturedFrames, (update) => {
+        setProcessingPhase(update.phase);
+        setProcessingProgress(update.progress);
       });
       const generatedRoom: GeneratedRoomRecord = {
         id: "latest-room",
@@ -560,6 +566,7 @@ export function RoomStudio() {
         createdAt: new Date().toISOString(),
         photoCount: capturedFrames.length,
         panorama,
+        processor: "laptop",
       };
       setRoom(generatedRoom);
       setFrames([]);
@@ -615,7 +622,7 @@ export function RoomStudio() {
     <div className={styles.studioShell}>
       <header className={styles.studioHeader}>
         <Link href="/" aria-label="Astra3D home"><BrandMark /></Link>
-        <div><span /> Room Capture Lab · local MVP</div>
+        <div><span /> Room Capture Lab · laptop processor</div>
         <Link href="/" className={styles.backLink}><ArrowLeft aria-hidden="true" /> Back to site</Link>
       </header>
 
@@ -662,7 +669,7 @@ export function RoomStudio() {
               </div>
               <div className={styles.blueprintStats}>
                 <span><CircleGauge aria-hidden="true" /><strong>3 bands</strong><small>upper · eye · lower</small></span>
-                <span><Sparkles aria-hidden="true" /><strong>Local blend</strong><small>4096 × 2048 output</small></span>
+                <span><Sparkles aria-hidden="true" /><strong>Laptop blend</strong><small>3072 × 1536 output</small></span>
               </div>
             </div>
 
@@ -674,7 +681,7 @@ export function RoomStudio() {
 
             <div className={styles.privacyBanner}>
               <LockKeyhole aria-hidden="true" />
-              <div><strong>Your scan stays on this device</strong><p>No video upload, account, cloud processing, or analytics are used by this capture MVP.</p></div>
+              <div><strong>Private laptop processing</strong><p>Still photos go only to this connected Astra3D server, are processed in memory, and are never sent to a cloud service.</p></div>
             </div>
           </section>
         ) : null}
@@ -719,7 +726,7 @@ export function RoomStudio() {
                     <div className={styles.fileCameraFallback}>
                       <LockKeyhole aria-hidden="true" />
                       <strong>Secure live camera required</strong>
-                      <p>This scanner does not record or upload video. Open Astra3D through HTTPS or phone localhost so the guided camera can remain inside the app.</p>
+                      <p>This scanner never records video. After capture, the 24 stills are sent through phone localhost to your laptop for private processing.</p>
                     </div>
                   )}
                   <div className={styles.cameraGrid} aria-hidden="true"><i /><i /></div>
@@ -962,12 +969,17 @@ export function RoomStudio() {
             >
               <ScanLine aria-hidden="true" /><span />
             </div>
-            <p className={styles.kicker}>On-device panorama assembly</p>
+            <p className={styles.kicker}>Private laptop panorama assembly</p>
             <h1 id="processing-title">Building {roomName.trim() || "your room"}…</h1>
-            <p>Normalizing the three completed bands, feathering overlap, and exporting a 2:1 panorama.</p>
+            <p>
+              {processingPhase === "preparing" ? "Packaging the completed still photographs for your laptop." : null}
+              {processingPhase === "uploading" ? "Sending the capture through this private local connection." : null}
+              {processingPhase === "processing" ? "Your laptop is normalizing, blending, and encoding the 2:1 panorama." : null}
+              {processingPhase === "receiving" ? "Returning the optimized panorama to the phone viewer." : null}
+            </p>
             <div className={styles.processingTrack}><span style={{ width: `${processingProgress}%` }} /></div>
             <strong>{processingProgress}%</strong>
-            <small>Keep this tab open. No images are being uploaded.</small>
+            <small>Keep this tab open. Photos are processed in laptop memory and are not retained by the server.</small>
           </section>
         ) : null}
 

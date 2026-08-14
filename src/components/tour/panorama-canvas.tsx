@@ -92,11 +92,12 @@ function getWebGLSupport() {
 
   try {
     const canvas = document.createElement("canvas");
-    cachedWebGLSupport = Boolean(
-      window.WebGLRenderingContext &&
-        (canvas.getContext("webgl2", { powerPreference: "low-power" }) ||
-          canvas.getContext("webgl", { powerPreference: "low-power" })),
-    );
+    const context = window.WebGLRenderingContext
+      ? canvas.getContext("webgl2", { powerPreference: "low-power" }) ||
+        canvas.getContext("webgl", { powerPreference: "low-power" })
+      : null;
+    cachedWebGLSupport = Boolean(context);
+    context?.getExtension("WEBGL_lose_context")?.loseContext();
   } catch {
     cachedWebGLSupport = false;
   }
