@@ -54,13 +54,6 @@ export function getSignedAngleDelta(current: number, previous: number) {
   return ((current - previous + 540) % 360) - 180;
 }
 
-export function hasReachedSweepTarget(
-  accumulatedDegrees: number,
-  capturedInBand: number,
-) {
-  return Math.abs(accumulatedDegrees) >= capturedInBand * (360 / CAPTURE_COLUMNS);
-}
-
 export function getBandRow(band: CaptureBandId) {
   if (band === "upper") return 0;
   if (band === "middle") return 1;
@@ -120,7 +113,7 @@ function drawCover(
   );
 }
 
-export function captureVideoFrame(video: HTMLVideoElement) {
+export function captureLiveStill(video: HTMLVideoElement) {
   if (!video.videoWidth || !video.videoHeight) {
     throw new Error("The camera is still starting. Try again in a moment.");
   }
@@ -145,99 +138,6 @@ function loadImage(source: string) {
     image.onerror = () => reject(new Error("One of the room photos could not be read."));
     image.src = source;
   });
-}
-
-export async function normalizeRoomPhoto(file: File) {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await loadImage(objectUrl);
-    const canvas = createCanvas(900, 1200);
-    const context = getCanvasContext(canvas);
-    drawCover(
-      context,
-      image,
-      image.naturalWidth,
-      image.naturalHeight,
-      canvas.width,
-      canvas.height,
-    );
-    return canvasToDataUrl(canvas);
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
-
-function waitForMediaEvent(
-  media: HTMLMediaElement,
-  eventName: "loadedmetadata" | "loadeddata" | "seeked",
-) {
-  return new Promise<void>((resolve, reject) => {
-    const handleEvent = () => {
-      cleanup();
-      resolve();
-    };
-    const handleError = () => {
-      cleanup();
-      reject(new Error("The recorded scan video could not be read by this browser."));
-    };
-    const cleanup = () => {
-      media.removeEventListener(eventName, handleEvent);
-      media.removeEventListener("error", handleError);
-    };
-    media.addEventListener(eventName, handleEvent, { once: true });
-    media.addEventListener("error", handleError, { once: true });
-  });
-}
-
-export async function extractFramesFromScanVideo(
-  file: File,
-  onProgress?: (progress: number) => void,
-) {
-  const objectUrl = URL.createObjectURL(file);
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-  video.preload = "auto";
-  video.src = objectUrl;
-
-  try {
-    const metadataReady = waitForMediaEvent(video, "loadedmetadata");
-    video.load();
-    await metadataReady;
-
-    if (!Number.isFinite(video.duration) || video.duration < 9) {
-      throw new Error("Record at least 9 seconds so every room direction has enough coverage.");
-    }
-
-    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      await waitForMediaEvent(video, "loadeddata");
-    }
-
-    const frames: CapturedFrame[] = [];
-    const slots = buildCaptureSlots();
-
-    for (let index = 0; index < slots.length; index += 1) {
-      const timestamp = ((index + 0.5) / slots.length) * video.duration;
-      const seeked = waitForMediaEvent(video, "seeked");
-      video.currentTime = timestamp;
-      await seeked;
-
-      const dataUrl = captureVideoFrame(video);
-      frames.push({
-        ...slots[index],
-        dataUrl,
-        capturedAt: Date.now() + index,
-      });
-      onProgress?.(Math.round(((index + 1) / slots.length) * 100));
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-    }
-
-    return frames;
-  } finally {
-    video.removeAttribute("src");
-    video.load();
-    URL.revokeObjectURL(objectUrl);
-  }
 }
 
 function applyTileMask(

@@ -521,6 +521,9 @@
   background: #02060d;
   grid-template-columns: minmax(0, 1fr) 17rem;
   grid-template-rows: minmax(32rem, 1fr) auto;
+  grid-template-areas:
+    "viewport direction"
+    "controls controls";
 }
 
 .cameraViewport {
@@ -528,6 +531,7 @@
   min-height: 32rem;
   overflow: hidden;
   background: radial-gradient(circle, #132b47, #030913 72%);
+  grid-area: viewport;
 }
 
 .cameraViewport[data-flash="true"]::after {
@@ -712,6 +716,112 @@
   font-size: 0.68rem;
 }
 
+.liveTargetGuide {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.centerLock,
+.targetMarker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4.6rem;
+  height: 4.6rem;
+  transform: translate(-50%, -50%);
+}
+
+.centerLock {
+  opacity: 0.75;
+}
+
+.centerLock i {
+  position: absolute;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-color: rgba(233, 249, 255, 0.88);
+  border-style: solid;
+}
+
+.centerLock i:nth-child(1) {
+  top: 0;
+  left: 0;
+  border-width: 2px 0 0 2px;
+  border-radius: 0.55rem 0 0;
+}
+
+.centerLock i:nth-child(2) {
+  top: 0;
+  right: 0;
+  border-width: 2px 2px 0 0;
+  border-radius: 0 0.55rem 0 0;
+}
+
+.centerLock i:nth-child(3) {
+  right: 0;
+  bottom: 0;
+  border-width: 0 2px 2px 0;
+  border-radius: 0 0 0.55rem;
+}
+
+.centerLock i:nth-child(4) {
+  bottom: 0;
+  left: 0;
+  border-width: 0 0 2px 2px;
+  border-radius: 0 0 0 0.55rem;
+}
+
+.targetMarker {
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(103, 220, 255, 0.9);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(56, 182, 255, 0.25) 0 18%, transparent 20%),
+    rgba(5, 14, 26, 0.15);
+  box-shadow:
+    0 0 0 0.4rem rgba(56, 182, 255, 0.08),
+    0 0 2rem rgba(56, 182, 255, 0.28);
+  transform:
+    translate(-50%, -50%)
+    translate(var(--target-x), var(--target-y));
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.targetMarker::before {
+  position: absolute;
+  inset: -0.45rem;
+  border-radius: 50%;
+  background: conic-gradient(#63e6be var(--hold-progress), rgba(218, 241, 255, 0.12) 0);
+  content: "";
+  mask: radial-gradient(transparent 65%, #000 67%);
+}
+
+.targetMarker span {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  background: var(--color-cyan-soft);
+  box-shadow: 0 0 1rem rgba(103, 220, 255, 0.9);
+}
+
+.targetMarker[data-aligned="true"] {
+  border-color: #63e6be;
+  box-shadow:
+    0 0 0 0.5rem rgba(99, 230, 190, 0.11),
+    0 0 2.5rem rgba(99, 230, 190, 0.4);
+}
+
+.targetMarker[data-aligned="true"] span {
+  background: #a6f7df;
+  box-shadow: 0 0 1.2rem rgba(99, 230, 190, 1);
+}
+
 .directionRing {
   position: relative;
   display: grid;
@@ -720,6 +830,7 @@
   overflow: hidden;
   border-left: 1px solid rgba(169, 211, 240, 0.12);
   background: linear-gradient(180deg, rgba(15, 34, 57, 0.8), rgba(5, 13, 24, 0.92));
+  grid-area: direction;
 }
 
 .directionRing > div {
@@ -817,6 +928,7 @@
   border-top: 1px solid rgba(169, 211, 240, 0.12);
   background: rgba(4, 10, 19, 0.96);
   grid-column: 1 / -1;
+  grid-area: controls;
   grid-template-columns: 1fr auto 1fr;
 }
 
@@ -1349,15 +1461,21 @@
   }
 
   .cameraPanel {
-    display: block;
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(25rem, 58svh) auto auto;
+    grid-template-areas:
+      "viewport"
+      "controls"
+      "direction";
   }
 
   .cameraViewport {
-    min-height: min(63svh, 35rem);
+    min-height: min(58svh, 34rem);
   }
 
   .directionRing {
-    min-height: 20rem;
+    min-height: 15rem;
     border-top: 1px solid rgba(169, 211, 240, 0.12);
     border-left: 0;
   }
@@ -1378,7 +1496,40 @@
   }
 
   .bandList {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .bandList > div {
+    align-content: start;
+    padding: 0.7rem;
+    grid-template-columns: 2rem 1fr;
+    gap: 0.45rem;
+  }
+
+  .bandList > div > span {
+    width: 2rem;
+    height: 2rem;
+    font-size: 0.62rem;
+  }
+
+  .bandList strong {
+    font-size: 0.7rem;
+  }
+
+  .bandList small {
+    font-size: 0.58rem;
+  }
+
+  .autoCaptureState {
+    bottom: 0.7rem;
+    min-width: calc(100% - 1.4rem);
+    padding: 0.65rem 0.8rem;
+  }
+
+  .targetMarker,
+  .centerLock {
+    width: 4rem;
+    height: 4rem;
   }
 
   .processing {
