@@ -105,6 +105,7 @@ async function processCaptureRequest(request: Request) {
       column: slot.column,
       image: Buffer.from(await value.arrayBuffer()),
       zoom: parseZoom(formData.get(`zoom-${slot.sequence}`)),
+      imu: parseOrientation(formData.get(`imu-${slot.sequence}`)),
       mimeType: value.type as ServerPanoramaFrame["mimeType"],
     });
   }
@@ -164,6 +165,21 @@ async function processCaptureRequest(request: Request) {
 function parseZoom(value: FormDataEntryValue | null) {
   const zoom = typeof value === "string" ? Number(value) : 1;
   return Number.isFinite(zoom) && zoom >= 0.5 && zoom <= 2 ? zoom : 1;
+}
+
+function parseOrientation(value: FormDataEntryValue | null) {
+  if (typeof value !== "string" || value.length > 200) return undefined;
+  try {
+    const candidate = JSON.parse(value) as { alpha?: unknown; beta?: unknown; gamma?: unknown };
+    const alpha = Number(candidate.alpha);
+    const beta = Number(candidate.beta);
+    const gamma = Number(candidate.gamma);
+    return Number.isFinite(alpha) && Number.isFinite(beta) && Number.isFinite(gamma)
+      ? { alpha, beta, gamma }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function POST(request: Request) {

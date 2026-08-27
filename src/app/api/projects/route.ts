@@ -18,7 +18,8 @@ function parseQuality(value: FormDataEntryValue | null) {
   try {
     const candidate = JSON.parse(value) as Partial<PanoramaQualityReport>;
     if (
-      candidate.method !== "opencv-sift-spherical-v3" ||
+      (candidate.method !== "opencv-sift-spherical-v3" &&
+        candidate.method !== "opencv-sift-spherical-v4") ||
       !Number.isFinite(candidate.alignmentScore) ||
       !Number.isFinite(candidate.coverage) ||
       !Number.isInteger(candidate.matchedPairs) ||

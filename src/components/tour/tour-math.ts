@@ -78,6 +78,43 @@ function degreesToRadians(value: number) {
   return (value * Math.PI) / 180;
 }
 
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI;
+}
+
+/**
+ * Converts device-orientation angles into the rear camera's look direction.
+ * Uses the W3C convention: intrinsic Z-X'-Y'' rotation where `alpha` spins
+ * about the vertical axis, `beta` tilts front-to-back, and `gamma` rolls
+ * left-to-right. The rear camera looks along the device's -z axis, so a
+ * phone held upright reports pitch 0 and pointing it at the ceiling
+ * approaches pitch 90. Yaw follows the panorama convention: positive turns
+ * right.
+ */
+export function orientationToView(
+  alpha: number,
+  beta: number,
+  gamma: number,
+): SphericalPoint {
+  const alphaRadians = degreesToRadians(alpha);
+  const betaRadians = degreesToRadians(beta);
+  const gammaRadians = degreesToRadians(gamma);
+
+  // Rear-camera direction (0, 0, -1) rotated by Ry(gamma) then Rx(beta).
+  const x = -Math.sin(gammaRadians);
+  const y = Math.sin(betaRadians) * Math.cos(gammaRadians);
+  const z = -Math.cos(betaRadians) * Math.cos(gammaRadians);
+
+  // Rz(alpha) into the world frame: x points east, y north, z up.
+  const east = x * Math.cos(alphaRadians) - y * Math.sin(alphaRadians);
+  const north = x * Math.sin(alphaRadians) + y * Math.cos(alphaRadians);
+
+  return {
+    yaw: wrapDegrees(radiansToDegrees(Math.atan2(east, north))),
+    pitch: radiansToDegrees(Math.asin(clamp(z, -1, 1))),
+  };
+}
+
 function sphericalDirection(point: SphericalPoint) {
   const yaw = degreesToRadians(point.yaw);
   const pitch = degreesToRadians(clampPitch(point.pitch, 90));

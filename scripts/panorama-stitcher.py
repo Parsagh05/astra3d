@@ -3,9 +3,13 @@
 
 The capture plan supplies eight ordered headings at three pitch bands.  This
 worker uses that ordering as a safe prior, then refines adjacent placement with
-SIFT features.  OpenCV handles cylindrical projection, exposure compensation,
-graph-cut seams, and multiband blending.  A JSON report is always written so
-the web app can request precise retakes instead of returning a broken image.
+SIFT features.  When the phone recorded orientation samples (imu.json), they
+provide per-pair placement priors, per-frame roll correction, and fallbacks
+for low-texture overlaps.  Each tilted band is also registered vertically
+against the eye-level ring to measure its true yaw offset and pitch.  OpenCV
+handles cylindrical projection, exposure compensation, graph-cut seams, and
+multiband blending.  A JSON report is always written so the web app can
+request precise retakes instead of returning a broken image.
 """
 
 from __future__ import annotations
@@ -26,6 +30,69 @@ CAPTURE_COLUMNS = 8
 BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
 MIN_KEYPOINTS = 24
 MIN_PAIR_INLIERS = 9
+MAX_BAND_YAW_OFFSET = 25.0
+MAX_FRAME_ROLL = 15.0
+
+
+def wrap_degrees(angle: float) -> float:
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+def camera_pose_from_orientation(alpha: float, beta: float, gamma: float) -> tuple[float, float, float]:
+    """Converts W3C device-orientation angles into rear-camera yaw/pitch/roll.
+
+    Uses the intrinsic Z-X'-Y'' convention with the world frame x east,
+    y north, z up.  Yaw is positive turning right, pitch positive toward the
+    ceiling, and roll positive when the top edge tilts toward the right.
+    """
+    a, b, g = (math.radians(alpha), math.radians(beta), math.radians(gamma))
+    ca, sa = math.cos(a), math.sin(a)
+    cb, sb = math.cos(b), math.sin(b)
+    cg, sg = math.cos(g), math.sin(g)
+    # R = Rz(alpha) @ Rx(beta) @ Ry(gamma), device axes -> world axes.
+    r01, r11, r21 = -sa * cb, ca * cb, sb
+    r02, r12, r22 = ca * sg + sa * sb * cg, sa * sg - ca * sb * cg, cb * cg
+    forward = (-r02, -r12, -r22)
+    up = (r01, r11, r21)
+    yaw = math.degrees(math.atan2(forward[0], forward[1]))
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, forward[2]))))
+    horizontal = math.hypot(forward[0], forward[1])
+    if horizontal < 1e-6:
+        return yaw, pitch, 0.0
+    right0 = (forward[1] / horizontal, -forward[0] / horizontal, 0.0)
+    up0 = (
+        right0[1] * forward[2] - right0[2] * forward[1],
+        right0[2] * forward[0] - right0[0] * forward[2],
+        right0[0] * forward[1] - right0[1] * forward[0],
+    )
+    roll = math.degrees(math.atan2(
+        up[0] * right0[0] + up[1] * right0[1] + up[2] * right0[2],
+        up[0] * up0[0] + up[1] * up0[1] + up[2] * up0[2],
+    ))
+    return yaw, pitch, roll
+
+
+def load_imu_poses(input_dir: Path) -> dict[int, tuple[float, float, float]]:
+    """Reads optional per-frame orientation samples written by the phone."""
+    path = input_dir / "imu.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    poses: dict[int, tuple[float, float, float]] = {}
+    for key, value in raw.items():
+        try:
+            sequence = int(key)
+            angles = (float(value["alpha"]), float(value["beta"]), float(value["gamma"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= sequence < CAPTURE_COLUMNS * len(BANDS) and all(math.isfinite(v) for v in angles):
+            poses[sequence] = camera_pose_from_orientation(*angles)
+    return poses
 
 
 @dataclass
@@ -133,6 +200,7 @@ def estimate_pair(
     previous: PreparedFrame,
     current: PreparedFrame,
     horizontal_fov: float,
+    expected_dx: float | None = None,
 ) -> tuple[float, float, int, float] | None:
     if previous.descriptors is None or current.descriptors is None:
         return None
@@ -165,16 +233,41 @@ def estimate_pair(
         return None
     refined = np.median(inliers, axis=0)
     spread = float(np.median(np.linalg.norm(inliers - refined, axis=1)))
-    if abs(float(refined[0]) - expected_step) > width * 0.34:
+    # A measured IMU step allows a tighter plausibility gate than the plan's
+    # nominal 45 degrees.
+    if expected_dx is not None:
+        if abs(float(refined[0]) - expected_dx) > width * 0.22:
+            return None
+    elif abs(float(refined[0]) - expected_step) > width * 0.34:
         return None
     return float(refined[0]), float(refined[1]), int(len(inliers)), spread
+
+
+def imu_pair_step(
+    imu_poses: dict[int, tuple[float, float, float]],
+    previous_sequence: int,
+    current_sequence: int,
+    focal: float,
+) -> tuple[float, float] | None:
+    """Predicts the cylindrical (dx, dy) step between two frames from the IMU."""
+    previous = imu_poses.get(previous_sequence)
+    current = imu_poses.get(current_sequence)
+    if previous is None or current is None:
+        return None
+    yaw_delta = wrap_degrees(current[0] - previous[0])
+    pitch_delta = current[1] - previous[1]
+    if not 10.0 <= yaw_delta <= 80.0 or abs(pitch_delta) > 20.0:
+        return None
+    return focal * math.radians(yaw_delta), -focal * math.radians(pitch_delta)
 
 
 def band_positions(
     band_frames: list[PreparedFrame],
     horizontal_fov: float,
+    imu_poses: dict[int, tuple[float, float, float]],
 ) -> tuple[list[float], list[float], float, list[int], list[dict[str, Any]]]:
     width = float(band_frames[0].image.shape[1])
+    focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
     nominal_step = width * (45.0 / horizontal_fov)
     estimates: list[tuple[float, float]] = []
     weak_pairs: list[int] = []
@@ -183,11 +276,23 @@ def band_positions(
     for column in range(CAPTURE_COLUMNS):
         previous = band_frames[column]
         current = band_frames[(column + 1) % CAPTURE_COLUMNS]
-        estimate = estimate_pair(previous, current, horizontal_fov)
+        imu_step = imu_pair_step(imu_poses, previous.sequence, current.sequence, focal)
+        estimate = estimate_pair(
+            previous,
+            current,
+            horizontal_fov,
+            imu_step[0] if imu_step is not None else None,
+        )
         if estimate is None:
-            estimates.append((nominal_step, 0.0))
+            estimates.append(imu_step if imu_step is not None else (nominal_step, 0.0))
             weak_pairs.append(column)
-            pair_reports.append({"from": previous.sequence, "to": current.sequence, "inliers": 0, "fallback": True})
+            pair_reports.append({
+                "from": previous.sequence,
+                "to": current.sequence,
+                "inliers": 0,
+                "fallback": True,
+                "imu": imu_step is not None,
+            })
             continue
         dx, dy, inliers, spread = estimate
         estimates.append((dx, dy))
@@ -212,6 +317,116 @@ def band_positions(
         x_positions.append(x_positions[-1] + estimates[index][0])
         y_positions.append(y_positions[-1] + corrected_dy[index])
     return x_positions, y_positions, circumference, weak_pairs, pair_reports
+
+
+def ring_yaws(x_positions: list[float], circumference: float) -> list[float]:
+    return [x * 360.0 / circumference for x in x_positions]
+
+
+def estimate_band_alignment(
+    middle_frames: list[PreparedFrame],
+    other_frames: list[PreparedFrame],
+    horizontal_fov: float,
+    direction: int,
+    middle_yaws: list[float],
+    other_yaws: list[float],
+) -> tuple[float, float, int] | None:
+    """Matches each column against the eye-level band to measure the tilted
+    band's true yaw offset and pitch instead of trusting the guided targets.
+
+    `direction` is +1 for the upper band and -1 for the lower band.  Returns
+    (yaw offset in degrees, measured band pitch in degrees, matched columns).
+    """
+    width = float(middle_frames[0].image.shape[1])
+    height = float(middle_frames[0].image.shape[0])
+    focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
+    center_y = (height - 1.0) * 0.5
+    matcher = cv2.BFMatcher(cv2.NORM_L2)
+    offset_estimates: list[float] = []
+    pitch_estimates: list[float] = []
+    matched_columns = 0
+
+    for column in range(CAPTURE_COLUMNS):
+        middle = middle_frames[column]
+        other = other_frames[column]
+        if middle.descriptors is None or other.descriptors is None:
+            continue
+        candidates = matcher.knnMatch(middle.descriptors, other.descriptors, k=2)
+        samples: list[tuple[float, float]] = []
+        for pair in candidates:
+            if len(pair) != 2 or pair[0].distance >= 0.72 * pair[1].distance:
+                continue
+            match = pair[0]
+            p_mid = middle.keypoints[match.queryIdx].pt
+            p_oth = other.keypoints[match.trainIdx].pt
+            dx = p_mid[0] - p_oth[0]
+            dy = p_mid[1] - p_oth[1]
+            if abs(dx) > width * 0.30:
+                continue
+            if not 0.30 * focal <= dy * direction * -1.0 <= 1.05 * focal:
+                continue
+            pitch_sample = math.degrees(
+                math.atan2(center_y - p_mid[1], focal) - math.atan2(center_y - p_oth[1], focal)
+            )
+            yaw_sample = math.degrees(dx / focal)
+            samples.append((yaw_sample, pitch_sample))
+        if len(samples) < MIN_PAIR_INLIERS:
+            continue
+        values = np.asarray(samples, dtype=np.float32)
+        median = np.median(values, axis=0)
+        residuals = np.linalg.norm(values - median, axis=1)
+        threshold = max(0.75, float(np.median(residuals) * 2.8))
+        inliers = values[residuals <= threshold]
+        if len(inliers) < MIN_PAIR_INLIERS:
+            continue
+        refined = np.median(inliers, axis=0)
+        pitch_estimate = float(refined[1])
+        if not 24.0 <= pitch_estimate * direction <= 46.0:
+            continue
+        # The tilted band's cylindrical warp compresses azimuth by roughly
+        # cos(pitch), so the raw x delta underestimates the yaw difference.
+        yaw_delta = float(refined[0]) / max(0.5, math.cos(math.radians(pitch_estimate)))
+        offset_estimates.append(
+            wrap_degrees(middle_yaws[column] + yaw_delta - other_yaws[column])
+        )
+        pitch_estimates.append(pitch_estimate)
+        matched_columns += 1
+
+    if matched_columns < 2:
+        return None
+    yaw_offset = float(np.median(np.asarray(offset_estimates, dtype=np.float32)))
+    band_pitch = float(np.median(np.asarray(pitch_estimates, dtype=np.float32)))
+    if abs(yaw_offset) > MAX_BAND_YAW_OFFSET:
+        return None
+    return yaw_offset, band_pitch, matched_columns
+
+
+def imu_band_alignment(
+    imu_poses: dict[int, tuple[float, float, float]],
+    band_index: int,
+    nominal_pitch: float,
+    middle_yaws: list[float],
+    other_yaws: list[float],
+) -> tuple[float, float] | None:
+    """Falls back to IMU headings when vertical matching finds no columns."""
+    offsets: list[float] = []
+    pitches: list[float] = []
+    for column in range(CAPTURE_COLUMNS):
+        middle_pose = imu_poses.get(column)
+        other_pose = imu_poses.get(band_index * CAPTURE_COLUMNS + column)
+        if middle_pose is None or other_pose is None:
+            continue
+        offsets.append(wrap_degrees(
+            middle_yaws[column] + wrap_degrees(other_pose[0] - middle_pose[0]) - other_yaws[column]
+        ))
+        pitches.append(other_pose[1] - middle_pose[1])
+    if len(offsets) < 3:
+        return None
+    yaw_offset = float(np.median(np.asarray(offsets, dtype=np.float32)))
+    band_pitch = float(np.median(np.asarray(pitches, dtype=np.float32)))
+    if abs(yaw_offset) > MAX_BAND_YAW_OFFSET or abs(band_pitch - nominal_pitch) > 12.0:
+        return None
+    return yaw_offset, band_pitch
 
 
 def choose_retakes(frames: list[PreparedFrame], weak_by_band: dict[str, list[int]]) -> list[int]:
@@ -249,6 +464,7 @@ def spherical_layers(
     longitude_cos: np.ndarray,
     latitude_sin: np.ndarray,
     latitude_cos: np.ndarray,
+    roll_degrees: float = 0.0,
 ) -> list[tuple[np.ndarray, np.ndarray, tuple[int, int]]]:
     source_height, source_width = frame.source.shape[:2]
     focal = (source_width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
@@ -264,6 +480,13 @@ def spherical_layers(
     yaw_local_z = math.sin(yaw) * world_x + math.cos(yaw) * world_z
     local_y = math.cos(pitch) * world_y - math.sin(pitch) * yaw_local_z
     local_z = math.sin(pitch) * world_y + math.cos(pitch) * yaw_local_z
+
+    if abs(roll_degrees) > 0.05:
+        # IMU-measured roll: positive tilts the camera's top toward its right.
+        roll = math.radians(roll_degrees)
+        rolled_x = math.cos(roll) * local_x - math.sin(roll) * local_y
+        local_y = math.cos(roll) * local_y + math.sin(roll) * local_x
+        local_x = rolled_x
 
     safe_z = np.where(local_z > 1e-5, local_z, 1.0)
     map_x = (focal * local_x / safe_z + (source_width - 1) * 0.5).astype(np.float32)
@@ -304,6 +527,8 @@ def spherical_layers(
 def build_layers(
     frames: list[PreparedFrame],
     positions: dict[str, tuple[list[float], list[float], float]],
+    band_alignment: dict[str, tuple[float, float]],
+    frame_rolls: dict[int, float],
     output_width: int,
     output_height: int,
     horizontal_fov: float,
@@ -318,22 +543,24 @@ def build_layers(
     latitude_sin = np.sin(latitude)
     latitude_cos = np.cos(latitude)
 
-    for band_index, (band, pitch) in enumerate(BANDS):
+    for band_index, (band, _) in enumerate(BANDS):
         x_positions, y_positions, circumference = positions[band]
+        yaw_offset, band_pitch = band_alignment[band]
         band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
         for column, frame in enumerate(band_frames):
-            yaw = x_positions[column] * 360.0 / circumference
+            yaw = x_positions[column] * 360.0 / circumference + yaw_offset
             registration_focal = (frame.image.shape[1] * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
             pitch_correction = math.degrees(math.atan2(y_positions[column], registration_focal))
             for image, mask, corner in spherical_layers(
                 frame,
                 yaw,
-                pitch - pitch_correction,
+                band_pitch - pitch_correction,
                 horizontal_fov,
                 longitude_sin,
                 longitude_cos,
                 latitude_sin,
                 latitude_cos,
+                frame_rolls.get(frame.sequence, 0.0),
             ):
                 images.append(image)
                 masks.append(mask)
@@ -402,7 +629,9 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         2.0 * math.atan(math.tan(math.radians(args.horizontal_fov * 0.5)) / args.zoom)
     )
     effective_fov = max(48.0, min(112.0, effective_fov))
-    frames = prepare_frames(Path(args.input), registration_width, effective_fov)
+    input_dir = Path(args.input)
+    imu_poses = load_imu_poses(input_dir)
+    frames = prepare_frames(input_dir, registration_width, effective_fov)
     positions: dict[str, tuple[list[float], list[float], float]] = {}
     weak_by_band: dict[str, list[int]] = {}
     pair_reports: list[dict[str, Any]] = []
@@ -411,10 +640,64 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         x_positions, y_positions, circumference, weak_pairs, reports = band_positions(
             band_frames,
             effective_fov,
+            imu_poses,
         )
         positions[band] = (x_positions, y_positions, circumference)
         weak_by_band[band] = weak_pairs
         pair_reports.extend(reports)
+
+    # Register the tilted bands against the eye-level ring so a drifted sweep
+    # start or an imprecise tilt no longer shears the panorama vertically.
+    middle_yaw_ring = ring_yaws(positions["middle"][0], positions["middle"][2])
+    band_alignment: dict[str, tuple[float, float]] = {"middle": (0.0, 0.0)}
+    cross_band_report: dict[str, Any] = {}
+    for band_index, (band, nominal_pitch) in enumerate(BANDS):
+        if band == "middle":
+            continue
+        band_yaw_ring = ring_yaws(positions[band][0], positions[band][2])
+        direction = 1 if nominal_pitch > 0 else -1
+        alignment = estimate_band_alignment(
+            frames[0:CAPTURE_COLUMNS],
+            frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS],
+            effective_fov,
+            direction,
+            middle_yaw_ring,
+            band_yaw_ring,
+        )
+        if alignment is not None:
+            yaw_offset, band_pitch, matched_columns = alignment
+            band_alignment[band] = (yaw_offset, band_pitch)
+            cross_band_report[band] = {
+                "source": "features",
+                "columns": matched_columns,
+                "yawOffset": round(yaw_offset, 2),
+                "pitch": round(band_pitch, 2),
+            }
+            continue
+        imu_alignment = imu_band_alignment(
+            imu_poses, band_index, nominal_pitch, middle_yaw_ring, band_yaw_ring,
+        )
+        if imu_alignment is not None:
+            band_alignment[band] = imu_alignment
+            cross_band_report[band] = {
+                "source": "imu",
+                "columns": 0,
+                "yawOffset": round(imu_alignment[0], 2),
+                "pitch": round(imu_alignment[1], 2),
+            }
+        else:
+            band_alignment[band] = (0.0, nominal_pitch)
+            cross_band_report[band] = {"source": "plan", "columns": 0}
+
+    # IMU roll deviations from the eye-level median keep hand wobble from
+    # tilting individual views without rotating the whole panorama.
+    frame_rolls: dict[int, float] = {}
+    middle_rolls = [imu_poses[s][2] for s in range(CAPTURE_COLUMNS) if s in imu_poses]
+    if middle_rolls:
+        reference_roll = float(np.median(np.asarray(middle_rolls, dtype=np.float32)))
+        for sequence, pose in imu_poses.items():
+            roll = wrap_degrees(pose[2] - reference_roll)
+            frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
 
     retake_sequences = choose_retakes(frames, weak_by_band)
     fallback_pairs = sum(len(pairs) for pairs in weak_by_band.values())
@@ -435,6 +718,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     images, masks, corners = build_layers(
         frames,
         positions,
+        band_alignment,
+        frame_rolls,
         blend_width,
         blend_height,
         effective_fov,
@@ -468,7 +753,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         )
     return {
         "ok": True,
-        "method": "opencv-sift-spherical-v3",
+        "method": "opencv-sift-spherical-v4",
         "alignmentScore": round(alignment_score, 3),
         "matchedPairs": matched_pairs,
         "fallbackPairs": fallback_pairs,
@@ -478,6 +763,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "warnings": warnings,
         "pairs": pair_reports,
         "blurScores": [round(frame.blur_score, 1) for frame in frames],
+        "imuFrames": len(imu_poses),
+        "crossBand": cross_band_report,
     }
 
 

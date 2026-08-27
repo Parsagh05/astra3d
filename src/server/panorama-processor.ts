@@ -8,7 +8,7 @@ import {
   CAPTURE_COLUMNS,
   TOTAL_CAPTURE_SLOTS,
 } from "@/lib/capture-plan";
-import type { CaptureBandId, PanoramaQualityReport } from "@/types/capture";
+import type { CaptureBandId, CaptureOrientation, PanoramaQualityReport } from "@/types/capture";
 
 export const PANORAMA_WIDTH = 3072;
 export const PANORAMA_HEIGHT = 1536;
@@ -21,6 +21,7 @@ export type ServerPanoramaFrame = {
   column: number;
   image: Buffer;
   zoom?: number;
+  imu?: CaptureOrientation;
   mimeType?: "image/jpeg" | "image/png" | "image/webp";
 };
 
@@ -177,6 +178,18 @@ export async function processRoomPanorama(
           { flag: "wx" },
         )),
     );
+    const orientationEntries = Object.fromEntries(
+      frames
+        .filter((frame) => frame.imu)
+        .map((frame) => [String(frame.sequence), frame.imu]),
+    );
+    if (Object.keys(orientationEntries).length > 0) {
+      await writeFile(
+        path.join(jobDirectory, "imu.json"),
+        JSON.stringify(orientationEntries),
+        { flag: "wx" },
+      );
+    }
 
     const args = [
       scriptPath,

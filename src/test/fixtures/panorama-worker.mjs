@@ -1,12 +1,21 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import sharp from "sharp";
 
 const valueAfter = (name) => process.argv[process.argv.indexOf(name) + 1];
 const width = Number(valueAfter("--width"));
 const height = Number(valueAfter("--height"));
+const input = valueAfter("--input");
 const output = valueAfter("--output");
 const report = valueAfter("--report");
+
+let imuFrames = 0;
+try {
+  imuFrames = Object.keys(JSON.parse(await readFile(join(input, "imu.json"), "utf8"))).length;
+} catch {
+  imuFrames = 0;
+}
 const rowHeight = Math.floor(height / 3);
 
 await sharp({
@@ -33,4 +42,5 @@ await writeFile(report, JSON.stringify({
   coverage: 0.98,
   retakeSequences: [],
   warnings: ["Three overlaps used guided placement."],
+  imuFrames,
 }));

@@ -7,6 +7,7 @@ import {
   clampFov,
   clampPanoramaView,
   clampPitch,
+  orientationToView,
   projectHotspot,
   shortestAngleDelta,
   wrapDegrees,
@@ -109,5 +110,31 @@ describe("tour panorama math", () => {
         400,
       ),
     ).toEqual({ x: 0, y: 0, depth: -1, visible: false });
+  });
+
+  it("converts device orientation into the rear camera look direction", () => {
+    // Phone flat on a table, screen up: the rear camera faces the floor.
+    const flat = orientationToView(0, 0, 0);
+    expect(flat.pitch).toBeCloseTo(-90);
+
+    // Phone upright in portrait: level view straight ahead.
+    const upright = orientationToView(0, 90, 0);
+    expect(upright.yaw).toBeCloseTo(0);
+    expect(upright.pitch).toBeCloseTo(0);
+
+    // Turning the phone 90° to the right decreases alpha, so yaw turns right.
+    const turnedRight = orientationToView(270, 90, 0);
+    expect(turnedRight.yaw).toBeCloseTo(90);
+    expect(turnedRight.pitch).toBeCloseTo(0);
+
+    // Tilting the top edge back by 35° looks up by 35°.
+    const tiltedUp = orientationToView(0, 125, 0);
+    expect(tiltedUp.yaw).toBeCloseTo(0);
+    expect(tiltedUp.pitch).toBeCloseTo(35);
+
+    // Rolling about the vertical axis while upright turns the camera left.
+    const rolledLeft = orientationToView(0, 90, 10);
+    expect(rolledLeft.yaw).toBeCloseTo(-10);
+    expect(rolledLeft.pitch).toBeCloseTo(0);
   });
 });

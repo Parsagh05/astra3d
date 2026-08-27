@@ -21,6 +21,7 @@ import type { CapturedFrame, GeneratedRoomRecord } from "@/types/capture";
 import type { SharedRoomProject } from "@/types/capture";
 
 import {
+  buildCaptureLockConstraints,
   buildCaptureSlots,
   CAPTURE_BANDS,
   CAPTURE_COLUMNS,
@@ -30,6 +31,9 @@ import {
   getRelativeCameraPitch,
   getSignedAngleDelta,
   TOTAL_CAPTURE_SLOTS,
+  type CaptureLockCapabilities,
+  type CaptureLockSettings,
+  type LiveStillCapture,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
 import { SharedProjectLibrary } from "./shared-project-library";
@@ -71,6 +75,14 @@ type OrientationEventConstructor = typeof DeviceOrientationEvent & {
 const captureSlots = buildCaptureSlots();
 const defaultZoomRange: ZoomRange = { min: 1, max: 1.4, step: 0.1, hardware: false };
 
+/**
+ * Laplacian-variance floor for automatic captures. Below this a detailed view
+ * is almost certainly motion-blurred; near-zero means the scene had no
+ * measurable detail at all, which the laptop's relative check handles better.
+ */
+const AUTO_CAPTURE_BLUR_FLOOR = 6;
+const MIN_MEASURABLE_SHARPNESS = 0.5;
+
 function getCameraLabel(device: MediaDeviceInfo, index: number) {
   const label = device.label.trim();
   const normalized = label.toLowerCase();
@@ -87,6 +99,7 @@ export function RoomStudio() {
   const autoStatusRef = useRef<AutoScanStatus>("idle");
   const captureModeRef = useRef<CaptureMode>("automatic");
   const retakeSequenceRef = useRef<number | null>(null);
+  const linkedProjectHandledRef = useRef(false);
   const bandCaptureCountRef = useRef(0);
   const activeBandIndexRef = useRef(0);
   const orientationRef = useRef({
@@ -98,7 +111,10 @@ export function RoomStudio() {
     pitchDirection: null as -1 | 1 | null,
     lastBeta: null as number | null,
     alignmentStartedAt: null as number | null,
+    betaSample: null as number | null,
+    gammaSample: null as number | null,
   });
+  const captureLockRef = useRef<MediaStreamTrack | null>(null);
   const [stage, setStage] = useState<StudioStage>("intro");
   const [cameraMode, setCameraMode] = useState<CameraMode>("idle");
   const [roomName, setRoomName] = useState("My room");
@@ -153,8 +169,27 @@ export function RoomStudio() {
     clearAutoTimers();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    captureLockRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, [clearAutoTimers]);
+
+  const lockCaptureAppearance = useCallback(async () => {
+    const track = streamRef.current?.getVideoTracks?.()[0];
+    if (!track || captureLockRef.current === track) return;
+    captureLockRef.current = track;
+    const constraints = buildCaptureLockConstraints(
+      track.getCapabilities?.() as CaptureLockCapabilities | undefined,
+      track.getSettings?.() as CaptureLockSettings | undefined,
+    );
+    if (!constraints) return;
+    try {
+      // Freezing exposure, white balance, and focus keeps all 24 stills
+      // consistent so the laptop blends seams without color steps.
+      await track.applyConstraints({ advanced: [constraints] });
+    } catch {
+      // Automatic exposure simply stays on when manual mode is rejected.
+    }
+  }, []);
 
   const refreshSharedProjects = useCallback(async () => {
     setLoadingSharedProjects(true);
@@ -354,21 +389,34 @@ export function RoomStudio() {
     window.requestAnimationFrame(() => void startCamera());
   };
 
-  const addFrame = useCallback((dataUrl: string) => {
+  const addFrame = useCallback((capture: LiveStillCapture) => {
     const replacementSequence = retakeSequenceRef.current;
     retakeSequenceRef.current = null;
     setRetakeSequence(null);
     setError(null);
     setFlash(true);
     window.setTimeout(() => setFlash(false), 160);
+    const orientation = orientationRef.current;
+    const motionFresh = orientation.alpha !== null &&
+      orientation.betaSample !== null &&
+      orientation.gammaSample !== null &&
+      Date.now() - orientation.lastEventAt < 1500;
+    const imu = motionFresh
+      ? {
+          alpha: orientation.alpha as number,
+          beta: orientation.betaSample as number,
+          gamma: orientation.gammaSample as number,
+        }
+      : undefined;
     setFrames((current) => {
       const slot = captureSlots[replacementSequence ?? current.length];
       if (!slot) return current;
       const capturedFrame = {
         ...slot,
-        dataUrl,
+        dataUrl: capture.dataUrl,
         capturedAt: Date.now(),
         zoom: captureZoom,
+        ...(imu ? { imu } : {}),
       };
       const next = replacementSequence === null
         ? [...current, capturedFrame]
@@ -388,10 +436,23 @@ export function RoomStudio() {
 
     try {
       const isRetaking = retakeSequenceRef.current !== null;
-      addFrame(captureLiveStill(
+      const capture = captureLiveStill(
         videoRef.current,
         zoomRange.hardware ? 1 : captureZoom,
-      ));
+      );
+      if (
+        captureModeRef.current === "automatic" &&
+        capture.sharpness > MIN_MEASURABLE_SHARPNESS &&
+        capture.sharpness < AUTO_CAPTURE_BLUR_FLOOR
+      ) {
+        // Motion blur detected: drop the still and let the hold timer retake
+        // the same target instead of discovering the problem after upload.
+        orientationRef.current.alignmentStartedAt = null;
+        setGuidance((current) => ({ ...current, aligned: false, holdProgress: 0 }));
+        setError("That view looked motion-blurred, so it was not saved. Hold steady and it will retake automatically.");
+        return;
+      }
+      addFrame(capture);
       if (isRetaking) {
         setAutomaticStatus(captureComplete ? "complete" : "scanning");
         return;
@@ -425,6 +486,8 @@ export function RoomStudio() {
       if (event.alpha === null) return;
       const orientation = orientationRef.current;
       orientation.alpha = event.alpha;
+      orientation.betaSample = event.beta;
+      orientation.gammaSample = event.gamma;
       orientation.lastEventAt = Date.now();
 
       if (
@@ -522,6 +585,7 @@ export function RoomStudio() {
 
     if (captureMode === "manual") {
       captureModeRef.current = "manual";
+      void lockCaptureAppearance();
       setAutomaticStatus("scanning");
       return;
     }
@@ -559,6 +623,7 @@ export function RoomStudio() {
       if (!motionAvailable) {
         setError("Motion guidance is unavailable, so capture switched to Manual. Align each target and tap the shutter.");
       }
+      void lockCaptureAppearance();
       setAutomaticStatus("scanning");
       orientationRef.current.lastAlpha = orientationRef.current.alpha;
       orientationRef.current.lastBeta = orientationRef.current.baselineBeta;
@@ -576,6 +641,7 @@ export function RoomStudio() {
 
     if (autoScanStatus === "countdown" || autoScanStatus === "scanning") {
       if (mode === "manual") {
+        void lockCaptureAppearance();
         setAutomaticStatus("scanning");
         return;
       }
@@ -595,6 +661,7 @@ export function RoomStudio() {
       orientationRef.current.lastAlpha = orientationRef.current.alpha;
       orientationRef.current.lastBeta = orientationRef.current.baselineBeta;
       orientationRef.current.accumulated = bandCaptureCountRef.current * (360 / CAPTURE_COLUMNS);
+      void lockCaptureAppearance();
       setAutomaticStatus("scanning");
     }
   };
@@ -611,7 +678,10 @@ export function RoomStudio() {
     activeBandIndexRef.current = CAPTURE_BANDS.findIndex((band) => band.id === slot.band);
     bandCaptureCountRef.current = slot.column;
     const cameraReady = streamRef.current ? true : await startCamera();
-    if (cameraReady) setAutomaticStatus("scanning");
+    if (cameraReady) {
+      void lockCaptureAppearance();
+      setAutomaticStatus("scanning");
+    }
   };
 
   const retakePrevious = () => {
@@ -619,7 +689,7 @@ export function RoomStudio() {
     if (previous) void beginRetake(previous.sequence);
   };
 
-  const openSharedProject = async (project: SharedRoomProject) => {
+  const openSharedProject = useCallback(async (project: SharedRoomProject) => {
     setOpeningProjectId(project.id);
     setSharedProjectsError(null);
     try {
@@ -634,7 +704,24 @@ export function RoomStudio() {
     } finally {
       setOpeningProjectId(null);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (linkedProjectHandledRef.current || loadingSharedProjects || stage !== "intro") return;
+    const request = window.setTimeout(() => {
+      if (linkedProjectHandledRef.current) return;
+      const linkedProjectId = new URLSearchParams(window.location.search).get("project");
+      linkedProjectHandledRef.current = true;
+      if (!linkedProjectId) return;
+      const linkedProject = sharedProjects.find((project) => project.id === linkedProjectId);
+      if (linkedProject) {
+        void openSharedProject(linkedProject);
+      } else {
+        setSharedProjectsError("The shared room link does not match a project on this laptop.");
+      }
+    }, 0);
+    return () => window.clearTimeout(request);
+  }, [loadingSharedProjects, openSharedProject, sharedProjects, stage]);
 
   const assembleRoom = async (capturedFrames: readonly CapturedFrame[]) => {
     if (capturedFrames.length !== TOTAL_CAPTURE_SLOTS) {

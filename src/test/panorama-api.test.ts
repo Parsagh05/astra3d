@@ -28,4 +28,25 @@ describe("panorama upload client", () => {
     expect(upload.get("frame-0")).toBeInstanceOf(File);
     expect(upload.get("zoom-1")).toBe("1.2");
   });
+
+  it("uploads the recorded motion sample beside frames that have one", () => {
+    const frames: CapturedFrame[] = [
+      {
+        id: "middle-0",
+        band: "middle",
+        column: 0,
+        sequence: 0,
+        yaw: 0,
+        capturedAt: 1,
+        dataUrl: jpegDataUrl,
+        zoom: 1,
+        imu: { alpha: 350.5, beta: 89.2, gamma: -1.4 },
+      },
+      { id: "middle-1", band: "middle", column: 1, sequence: 1, yaw: 45, capturedAt: 2, dataUrl: jpegDataUrl, zoom: 1 },
+    ];
+
+    const upload = createPanoramaUpload(frames);
+    expect(JSON.parse(upload.get("imu-0") as string)).toEqual({ alpha: 350.5, beta: 89.2, gamma: -1.4 });
+    expect(upload.get("imu-1")).toBeNull();
+  });
 });

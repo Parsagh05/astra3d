@@ -19,6 +19,9 @@ async function createFrames() {
   return Promise.all(
     buildCaptureSlots().map(async (slot): Promise<ServerPanoramaFrame> => ({
       ...slot,
+      ...(slot.sequence < 2
+        ? { imu: { alpha: 360 - slot.column * 45, beta: 90, gamma: 0 } }
+        : {}),
       image: await sharp({
         create: {
           width: 90,
@@ -50,6 +53,8 @@ describe("laptop panorama processor", () => {
       matchedPairs: 21,
       fallbackPairs: 3,
       coverage: 0.98,
+      // The worker fixture echoes how many imu.json entries reached it.
+      imuFrames: 2,
     });
 
     const pixel = (x: number, y: number) => {

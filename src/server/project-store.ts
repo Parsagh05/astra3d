@@ -21,6 +21,7 @@ type StoredProjectManifest = SharedRoomProject & {
     band: ServerPanoramaFrame["band"];
     column: number;
     zoom: number;
+    imu?: ServerPanoramaFrame["imu"];
     file: string;
   }>;
 };
@@ -111,6 +112,7 @@ async function saveProject(
     band: frame.band,
     column: frame.column,
     zoom: frame.zoom ?? 1,
+    ...(frame.imu ? { imu: frame.imu } : {}),
     file: `frames/${String(frame.sequence + 1).padStart(2, "0")}-${frame.band}-${frame.column + 1}.${extensionFor(frame)}`,
   }));
   const manifest: StoredProjectManifest = {

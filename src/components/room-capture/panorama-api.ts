@@ -64,6 +64,13 @@ export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName 
       `${frame.band}-${frame.column}.${extension}`,
     );
     formData.append(`zoom-${frame.sequence}`, String(frame.zoom));
+    if (frame.imu) {
+      formData.append(`imu-${frame.sequence}`, JSON.stringify({
+        alpha: frame.imu.alpha,
+        beta: frame.imu.beta,
+        gamma: frame.imu.gamma,
+      }));
+    }
   }
   return formData;
 }
@@ -102,8 +109,11 @@ function parseWarnings(value: string | null) {
 
 function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
   const retakeHeader = request.getResponseHeader("X-Astra3D-Retakes");
+  const methodHeader = request.getResponseHeader("X-Astra3D-Method");
   return {
-    method: "opencv-sift-spherical-v3",
+    method: methodHeader === "opencv-sift-spherical-v3"
+      ? methodHeader
+      : "opencv-sift-spherical-v4",
     alignmentScore: numberHeader(request, "X-Astra3D-Alignment", 0),
     coverage: numberHeader(request, "X-Astra3D-Coverage", 0),
     fallbackPairs: numberHeader(request, "X-Astra3D-Fallback-Pairs", 0),

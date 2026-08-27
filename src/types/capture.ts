@@ -8,15 +8,24 @@ export type CaptureSlot = {
   yaw: number;
 };
 
+export type CaptureOrientation = {
+  /** W3C device-orientation angles sampled at the moment of capture. */
+  alpha: number;
+  beta: number;
+  gamma: number;
+};
+
 export type CapturedFrame = CaptureSlot & {
   dataUrl: string;
   capturedAt: number;
   /** Optical or preview zoom used for this view. */
   zoom: number;
+  /** Motion-sensor pose recorded with the still, when sensors were live. */
+  imu?: CaptureOrientation;
 };
 
 export type PanoramaQualityReport = {
-  method: "opencv-sift-spherical-v3";
+  method: "opencv-sift-spherical-v3" | "opencv-sift-spherical-v4";
   alignmentScore: number;
   matchedPairs: number;
   fallbackPairs: number;
