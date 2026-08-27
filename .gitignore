@@ -31,3 +31,8 @@ next-env.d.ts
 /.astra3d-data/
 __pycache__/
 *.py[cod]
+
+# AI assistant instruction files (not part of the project)
+CLAUDE.md
+AGENTS.md
+.claude/
