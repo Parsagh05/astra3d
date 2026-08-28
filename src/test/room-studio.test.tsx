@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { RoomStudio } from "@/components/room-capture";
+import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 
 describe("RoomStudio", () => {
   it("requires a secure live camera and never falls back to recording video", async () => {
@@ -28,6 +29,6 @@ describe("RoomStudio", () => {
     expect(screen.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
     expect(screen.queryByText(/record guided video/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/individual photos/i)).not.toBeInTheDocument();
-    expect(screen.getByText("0 / 24")).toBeInTheDocument();
+    expect(screen.getByText(`0 / ${TOTAL_CAPTURE_SLOTS}`)).toBeInTheDocument();
   });
 });

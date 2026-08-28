@@ -338,7 +338,7 @@
 }
 
 .orbitRing i {
-  --angle: calc(var(--index) * 45deg);
+  --angle: calc(var(--index) * (360deg / var(--slot-count, 8)));
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1144,7 +1144,7 @@
 }
 
 .directionDial > i {
-  --angle: calc(var(--index) * 45deg);
+  --angle: calc(var(--index) * (360deg / var(--slot-count, 8)));
   position: absolute;
   top: 50%;
   left: 50%;

@@ -871,8 +871,12 @@ export function RoomStudio() {
                 <span className={styles.phoneCamera} />
                 <div><ScanLine aria-hidden="true" /><strong>Live</strong><small>guided still capture</small></div>
               </div>
-              <div className={styles.orbitRing} aria-hidden="true">
-                {Array.from({ length: 8 }, (_, index) => <i key={index} style={{ "--index": index } as React.CSSProperties} />)}
+              <div
+                className={styles.orbitRing}
+                aria-hidden="true"
+                style={{ "--slot-count": CAPTURE_COLUMNS } as React.CSSProperties}
+              >
+                {Array.from({ length: CAPTURE_COLUMNS }, (_, index) => <i key={index} style={{ "--index": index } as React.CSSProperties} />)}
               </div>
               <div className={styles.blueprintStats}>
                 <span><CircleGauge aria-hidden="true" /><strong>3 bands</strong><small>upper · eye · lower</small></span>
@@ -888,7 +892,7 @@ export function RoomStudio() {
 
             <div className={styles.privacyBanner}>
               <LockKeyhole aria-hidden="true" />
-              <div><strong>Private shared laptop projects</strong><p>Completed scans and their 24 original photos stay on this laptop so phone and desktop can open the same project. Nothing is sent to a cloud service.</p></div>
+              <div><strong>Private shared laptop projects</strong><p>Completed scans and their {TOTAL_CAPTURE_SLOTS} original photos stay on this laptop so phone and desktop can open the same project. Nothing is sent to a cloud service.</p></div>
             </div>
 
             {sharedProjectsError ? <p className={styles.libraryError} role="status">{sharedProjectsError}</p> : null}
@@ -942,7 +946,7 @@ export function RoomStudio() {
                     <div className={styles.fileCameraFallback}>
                       <LockKeyhole aria-hidden="true" />
                       <strong>Secure live camera required</strong>
-                      <p>This scanner never records video. After capture, the 24 stills are sent through phone localhost to your laptop for private processing.</p>
+                      <p>This scanner never records video. After capture, the {TOTAL_CAPTURE_SLOTS} stills are sent through phone localhost to your laptop for private processing.</p>
                     </div>
                   )}
                   <div className={styles.cameraGrid} aria-hidden="true"><i /><i /></div>
@@ -1024,7 +1028,10 @@ export function RoomStudio() {
                 </div>
 
                 <div className={styles.directionRing} aria-label="Current rotation coverage">
-                  <div className={styles.directionDial}>
+                  <div
+                  className={styles.directionDial}
+                  style={{ "--slot-count": CAPTURE_COLUMNS } as React.CSSProperties}
+                >
                     <div>
                       <span
                         style={{

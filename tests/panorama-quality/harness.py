@@ -2,7 +2,7 @@
 """Synthetic ground-truth harness for the Astra3D panorama stitcher.
 
 Real capture quality cannot be regression-tested from a phone, so this harness
-manufactures a capture whose correct answer is known: it renders the 24 guided
+manufactures a capture whose correct answer is known: it renders the guided
 stills out of an existing equirectangular image, applies controllable
 yaw/pitch/roll errors, writes the matching W3C device-orientation samples and
 optional exposure brackets, runs the real stitcher, and scores the panorama it
@@ -27,8 +27,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-CAPTURE_COLUMNS = 8
 BANDS = ("middle", "upper", "lower")
+CAPTURE_COLUMNS = 12
+TOTAL_SLOTS = CAPTURE_COLUMNS * len(BANDS)
 FRAME_WIDTH = 900
 HFOV = 72.0
 DEFAULT_STITCHER = Path(__file__).resolve().parents[2] / "scripts" / "panorama-stitcher.py"
@@ -77,9 +78,9 @@ def orientation_angles(yaw_deg: float, pitch_deg: float, roll_deg: float):
     return math.degrees(alpha) % 360.0, math.degrees(beta), math.degrees(gamma)
 
 
-def render_frame(equirect, yaw_deg, pitch_deg, roll_deg, width, height):
+def render_frame(equirect, yaw_deg, pitch_deg, roll_deg, width, height, fov=None):
     """Renders one rectilinear still the phone would have photographed."""
-    focal = (width * 0.5) / math.tan(math.radians(HFOV * 0.5))
+    focal = (width * 0.5) / math.tan(math.radians((HFOV if fov is None else fov) * 0.5))
     forward, up, right = camera_basis(yaw_deg, pitch_deg, roll_deg)
 
     xs = (np.arange(width, dtype=np.float64) - (width - 1) * 0.5) / focal
@@ -137,7 +138,7 @@ def ground_truth_poses(perturb: bool, roll: float = 0.0, seed: int = 7):
     for band_index, band in enumerate(BANDS):
         for column in range(CAPTURE_COLUMNS):
             sequence = band_index * CAPTURE_COLUMNS + column
-            yaw = column * 45.0 + band_yaw_offset[band]
+            yaw = column * (360.0 / CAPTURE_COLUMNS) + band_yaw_offset[band]
             pitch = band_pitch[band]
             frame_roll = roll if sequence % 2 == 0 else -roll
             if perturb:
@@ -193,6 +194,8 @@ def run_case(
     uneven: float = 0.0,
     noise: float = 0.0,
     matcher: str = "auto",
+    lens_fov: float = HFOV,
+    measure_lens: bool = False,
     frame_width: int = FRAME_WIDTH,
     output_width: int = 1536,
     stitcher: str | Path = DEFAULT_STITCHER,
@@ -222,7 +225,7 @@ def run_case(
         work_dir = Path(work)
         orientations = {}
         for sequence, (yaw, pitch, frame_roll) in poses.items():
-            frame = render_frame(source, yaw, pitch, frame_roll, frame_width, frame_height)
+            frame = render_frame(source, yaw, pitch, frame_roll, frame_width, frame_height, lens_fov)
             if noise:
                 frame = np.clip(
                     frame.astype(np.float32) + grain.normal(0, noise, frame.shape), 0, 255,
@@ -231,7 +234,7 @@ def run_case(
                 frame = np.clip(frame.astype(np.float32) * BRIGHT_GAIN, 0, 255).astype(np.uint8)
             if bracket:
                 # Slight pose jitter between the two shots simulates hand shake.
-                shifted = render_frame(source, yaw + 0.25, pitch + 0.15, frame_roll, frame_width, frame_height)
+                shifted = render_frame(source, yaw + 0.25, pitch + 0.15, frame_roll, frame_width, frame_height, lens_fov)
                 dark = np.clip(shifted.astype(np.float32) * DARK_GAIN, 0, 255).astype(np.uint8)
                 write_jpeg(work_dir / f"{sequence:03d}.bracket", dark)
             write_jpeg(work_dir / f"{sequence:03d}.frame", frame)
@@ -251,6 +254,11 @@ def run_case(
                 "--report", str(report_path),
                 "--width", str(output_width),
                 "--height", str(output_width // 2),
+                "--columns", str(CAPTURE_COLUMNS),
+                # The scene was rendered with a known lens, so the stitch is
+                # measured here rather than the calibration.
+                # 0 asks the stitcher to recover the lens from the photographs.
+                "--horizontal-fov", "0" if measure_lens else str(lens_fov),
                 "--matcher", matcher,
             ],
             capture_output=True,
@@ -298,6 +306,9 @@ def run_case(
             "fusedFrames": report.get("fusedFrames"),
             "sourceWidth": report.get("sourceWidth"),
             "matcher": report.get("matcher"),
+            "horizontalFov": report.get("horizontalFov"),
+            "lensMeasured": report.get("lensMeasured"),
+            "trueFov": lens_fov,
             "learnedPairs": report.get("learnedPairs"),
             "crossBand": report.get("crossBand"),
         }

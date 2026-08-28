@@ -40,7 +40,7 @@ class StageTimer:
         self.last = now
 
 
-CAPTURE_COLUMNS = 8
+CAPTURE_COLUMNS = 12
 BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
 MIN_PAIR_INLIERS = 9
 # LightGlue matches are mutual and score-filtered, so fewer suffice.
@@ -161,7 +161,11 @@ def resize_for_registration(image: np.ndarray, target_width: int) -> np.ndarray:
     )
 
 
-def cylindrical_warp(image: np.ndarray, horizontal_fov: float) -> tuple[np.ndarray, np.ndarray]:
+def cylindrical_warp(
+    image: np.ndarray,
+    horizontal_fov: float,
+    roll_degrees: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray]:
     height, width = image.shape[:2]
     focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
     y_grid, x_grid = np.indices((height, width), dtype=np.float32)
@@ -169,6 +173,15 @@ def cylindrical_warp(image: np.ndarray, horizontal_fov: float) -> tuple[np.ndarr
     vertical = (y_grid - (height - 1) * 0.5) / focal
     source_x = focal * np.tan(theta) + (width - 1) * 0.5
     source_y = focal * vertical / np.cos(theta) + (height - 1) * 0.5
+    if abs(roll_degrees) > 0.05:
+        # Undo the hand tilt while sampling, so a matched pair and the
+        # projected layer describe the same camera. Rotating the coordinates
+        # rather than the picture keeps the validity mask exact.
+        roll = math.radians(-roll_degrees)
+        centre_x, centre_y = (width - 1) * 0.5, (height - 1) * 0.5
+        offset_x, offset_y = source_x - centre_x, source_y - centre_y
+        source_x = math.cos(roll) * offset_x - math.sin(roll) * offset_y + centre_x
+        source_y = math.sin(roll) * offset_x + math.cos(roll) * offset_y + centre_y
     valid = (
         (source_x >= 0)
         & (source_x <= width - 1)
@@ -223,7 +236,12 @@ def focus_from_gray(gray: np.ndarray) -> float:
     return detail / max(contrast, 1.0)
 
 
-def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: float) -> list[PreparedFrame]:
+def prepare_frames(
+    input_dir: Path,
+    registration_width: int,
+    horizontal_fov: float,
+    frame_rolls: dict[int, float] | None = None,
+) -> list[PreparedFrame]:
     detector = cv2.SIFT_create(nfeatures=1400, contrastThreshold=0.025, edgeThreshold=14)
     frames: list[PreparedFrame] = []
     for band_index, (band, _) in enumerate(BANDS):
@@ -234,7 +252,9 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
             # practical; feature registration runs on a small copy.
             source = resize_for_registration(loaded, MAX_SOURCE_WIDTH)
             image = resize_for_registration(source, registration_width)
-            warped, mask = cylindrical_warp(image, horizontal_fov)
+            warped, mask = cylindrical_warp(
+                image, horizontal_fov, (frame_rolls or {}).get(sequence, 0.0),
+            )
             gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
             blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
             focus_score = focus_from_gray(gray)
@@ -872,15 +892,116 @@ def fill_polar_holes(
         result[remaining] = patched[remaining]
 
 
+def measure_horizontal_fov(
+    input_dir: Path,
+    learned: "Any | None",
+    default_fov: float = 72.0,
+) -> tuple[float, bool]:
+    """Recovers the camera's horizontal field of view from the capture itself.
+
+    A sweep returns to where it started, so the eye-level turns must add up to
+    one full circle.  That single constraint pins the focal length: guess it
+    too short and the measured turns overshoot 360 degrees, too long and they
+    fall short.  Phones rarely report a usable focal length and a 3:4 crop, a
+    16:9 crop and an ultrawide all differ by tens of degrees, so measuring
+    beats assuming.
+    """
+    frames = []
+    for column in range(CAPTURE_COLUMNS):
+        path = input_dir / f"{column:03d}.frame"
+        if not path.exists():
+            return default_fov, False
+        image = resize_for_registration(load_frame(path), 700)
+        frames.append(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+
+    width = frames[0].shape[1]
+    centre = (width - 1) * 0.5
+    detector = cv2.SIFT_create(nfeatures=1400, contrastThreshold=0.025, edgeThreshold=14)
+    correspondences: list[tuple[np.ndarray, np.ndarray] | None] = []
+    for column in range(CAPTURE_COLUMNS):
+        first, second = frames[column], frames[(column + 1) % CAPTURE_COLUMNS]
+        points = None
+        # Repeating wardrobe panels and patterned rugs make SIFT confident and
+        # wrong, which is fatal here: one bad turn skews the whole lens
+        # estimate.  The learned matcher leads when it is installed.
+        if learned is not None and learned.available():
+            matched = learned.match_pair(first, second)
+            if len(matched) >= 12:
+                points = (matched[:, 0:2], matched[:, 2:4])
+        if points is None:
+            keys_a, desc_a = detector.detectAndCompute(first, None)
+            keys_b, desc_b = detector.detectAndCompute(second, None)
+            if desc_a is not None and desc_b is not None and len(desc_a) > 1 and len(desc_b) > 1:
+                pairs = cv2.BFMatcher(cv2.NORM_L2).knnMatch(desc_a, desc_b, k=2)
+                good = [p[0] for p in pairs if len(p) == 2 and p[0].distance < 0.72 * p[1].distance]
+                if len(good) >= 12:
+                    points = (
+                        np.array([keys_a[g.queryIdx].pt for g in good], dtype=np.float32),
+                        np.array([keys_b[g.trainIdx].pt for g in good], dtype=np.float32),
+                    )
+        if points is None:
+            correspondences.append(None)
+            continue
+        vertical = points[0][:, 1] - points[1][:, 1]
+        keep = np.abs(vertical - np.median(vertical)) < first.shape[0] * 0.05
+        if keep.sum() < 12:
+            correspondences.append(None)
+            continue
+        horizontal = points[0][keep, 0] - points[1][keep, 0]
+        # A blank wall can return many confident matches that all sit where
+        # they started.  They describe no turn at all, and averaging them in
+        # would make the sweep look slower than it was and the lens wider.
+        if abs(float(np.median(horizontal))) < width * 0.08:
+            correspondences.append(None)
+            continue
+        correspondences.append((points[0][keep, 0], points[1][keep, 0]))
+
+    usable = [c for c in correspondences if c is not None]
+    if len(usable) < max(3, CAPTURE_COLUMNS // 2):
+        return default_fov, False
+
+    # Every turn of one sweep goes the same way; a pair that disagrees is a
+    # mismatch, not a change of heart.
+    directions = [float(np.median(a - b)) for a, b in usable]
+    forward = sum(1 for d in directions if d > 0) >= len(directions) / 2
+    usable = [c for c, d in zip(usable, directions) if (d > 0) == forward]
+    if len(usable) < max(3, CAPTURE_COLUMNS // 2):
+        return default_fov, False
+
+    def typical_turn(focal: float) -> float:
+        angles = []
+        for first_x, second_x in usable:
+            turn = np.arctan((first_x - centre) / focal) - np.arctan((second_x - centre) / focal)
+            median = np.median(turn)
+            spread = np.median(np.abs(turn - median))
+            inliers = turn[np.abs(turn - median) <= max(math.radians(0.5), spread * 3)]
+            if len(inliers) >= 12:
+                angles.append(abs(float(np.median(inliers))))
+        return float(np.median(angles)) if angles else 0.0
+
+    # The sweep is aimed at even steps, so the typical turn should be one
+    # step of the circle.  Turn angle shrinks as the focal grows, which makes
+    # the search monotonic.
+    nominal_turn = 2.0 * math.pi / CAPTURE_COLUMNS
+    low, high = width * 0.20, width * 6.0
+    for _ in range(50):
+        middle = (low + high) * 0.5
+        if typical_turn(middle) > nominal_turn:
+            low = middle
+        else:
+            high = middle
+    focal = (low + high) * 0.5
+    fov = math.degrees(2.0 * math.atan((width * 0.5) / focal))
+    if not 30.0 <= fov <= 120.0:
+        return default_fov, False
+    return fov, True
+
+
 def process(args: argparse.Namespace) -> dict[str, Any]:
     if args.width < 640 or args.height < 320 or args.width != args.height * 2:
         raise ValueError("Output dimensions must use a supported 2:1 size.")
 
     registration_width = min(640, max(320, round(args.width / 5.0)))
-    effective_fov = math.degrees(
-        2.0 * math.atan(math.tan(math.radians(args.horizontal_fov * 0.5)) / args.zoom)
-    )
-    effective_fov = max(48.0, min(112.0, effective_fov))
     timer = StageTimer()
     input_dir = Path(args.input)
     imu_poses = load_imu_poses(input_dir)
@@ -894,7 +1015,26 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         except ImportError:
             learned = None
 
-    frames = prepare_frames(input_dir, registration_width, effective_fov)
+    lens_fov, lens_measured = (args.horizontal_fov, False)
+    if args.horizontal_fov <= 0.0:
+        lens_fov, lens_measured = measure_horizontal_fov(input_dir, learned)
+        timer.mark("lens")
+    effective_fov = math.degrees(
+        2.0 * math.atan(math.tan(math.radians(lens_fov * 0.5)) / args.zoom)
+    )
+    effective_fov = max(38.0, min(112.0, effective_fov))
+
+    # IMU roll deviations from the eye-level median keep hand wobble from
+    # tilting individual views without rotating the whole panorama.
+    frame_rolls: dict[int, float] = {}
+    middle_rolls = [imu_poses[s][2] for s in range(CAPTURE_COLUMNS) if s in imu_poses]
+    if middle_rolls:
+        reference_roll = float(np.median(np.asarray(middle_rolls, dtype=np.float32)))
+        for sequence, pose in imu_poses.items():
+            roll = wrap_degrees(pose[2] - reference_roll)
+            frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
+
+    frames = prepare_frames(input_dir, registration_width, effective_fov, frame_rolls)
     timer.mark("prepare")
     positions: dict[str, tuple[list[float], list[float], float]] = {}
     weak_by_band: dict[str, list[int]] = {}
@@ -954,16 +1094,6 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         else:
             band_alignment[band] = (0.0, nominal_pitch)
             cross_band_report[band] = {"source": "plan", "columns": 0}
-
-    # IMU roll deviations from the eye-level median keep hand wobble from
-    # tilting individual views without rotating the whole panorama.
-    frame_rolls: dict[int, float] = {}
-    middle_rolls = [imu_poses[s][2] for s in range(CAPTURE_COLUMNS) if s in imu_poses]
-    if middle_rolls:
-        reference_roll = float(np.median(np.asarray(middle_rolls, dtype=np.float32)))
-        for sequence, pose in imu_poses.items():
-            roll = wrap_degrees(pose[2] - reference_roll)
-            frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
 
     retake_sequences = choose_retakes(frames, weak_by_band)
     fallback_pairs = sum(len(pairs) for pairs in weak_by_band.values())
@@ -1064,6 +1194,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "matcher": "sift+superpoint-lightglue" if learned is not None and learned.available() else "sift",
         "learnedPairs": sum(1 for report in pair_reports if report.get("learned")),
         "blindPairs": blind_pairs,
+        "horizontalFov": round(effective_fov, 1),
+        "lensMeasured": lens_measured,
         "blurredFrames": blurred,
     }
 
@@ -1076,7 +1208,9 @@ def main() -> int:
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     parser.add_argument("--quality", type=int, default=90)
-    parser.add_argument("--horizontal-fov", type=float, default=72.0)
+    parser.add_argument("--columns", type=int, default=CAPTURE_COLUMNS)
+    parser.add_argument("--horizontal-fov", type=float, default=0.0,
+                        help="0 measures the lens from the photographs themselves")
     parser.add_argument("--zoom", type=float, default=1.0)
     parser.add_argument(
         "--matcher",
@@ -1085,6 +1219,8 @@ def main() -> int:
         help="auto uses the learned matcher to rescue low-texture overlaps when its model is installed",
     )
     args = parser.parse_args()
+    if args.columns >= 3:
+        globals()["CAPTURE_COLUMNS"] = args.columns
     report_path = Path(args.report)
     try:
         report = process(args)

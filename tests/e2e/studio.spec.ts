@@ -2,6 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import sharp from "sharp";
 
+import { CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+
 async function dispatchOrientation(page: Page, alpha: number, beta: number) {
   await page.evaluate(({ heading, tilt }) => {
     const event = new Event("deviceorientation");
@@ -17,7 +19,7 @@ async function beginGuidedBand(page: Page, buttonName: string, beta: number) {
   await page.getByRole("button", { name: buttonName }).click();
   await page.waitForTimeout(2_150);
   await dispatchOrientation(page, 0, beta);
-  await expect(page.getByText("Target 1 of 8")).toBeVisible({ timeout: 3_500 });
+  await expect(page.getByText(`Target 1 of ${CAPTURE_COLUMNS}`)).toBeVisible({ timeout: 3_500 });
 }
 
 async function holdTarget(page: Page, alpha: number, beta: number) {
@@ -28,9 +30,9 @@ async function holdTarget(page: Page, alpha: number, beta: number) {
 }
 
 async function completeGuidedBand(page: Page, beta: number, startingTotal: number) {
-  for (let index = 0; index < 8; index += 1) {
-    await holdTarget(page, index * 45, beta);
-    await expect(page.getByText(`${startingTotal + index + 1} / 24`)).toBeVisible();
+  for (let index = 0; index < CAPTURE_COLUMNS; index += 1) {
+    await holdTarget(page, index * (360 / CAPTURE_COLUMNS), beta);
+    await expect(page.getByText(`${startingTotal + index + 1} / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
   }
 }
 
@@ -60,7 +62,7 @@ test("opens the same laptop project library from phone and desktop", async ({ pa
           id: projectId,
           name: "Common living room",
           createdAt: "2026-08-15T00:00:00.000Z",
-          photoCount: 24,
+          photoCount: TOTAL_CAPTURE_SLOTS,
           hasSourceFrames: true,
           processor: "laptop",
         }],
@@ -73,10 +75,10 @@ test("opens the same laptop project library from phone and desktop", async ({ pa
 
   await page.goto("/studio/");
   await expect(page.getByRole("heading", { name: "Phone and laptop projects" })).toBeVisible();
-  await expect(page.getByText("24 source photos saved")).toBeVisible();
+  await expect(page.getByText(`${TOTAL_CAPTURE_SLOTS} source photos saved`)).toBeVisible();
   await page.getByRole("button", { name: /Common living room/ }).click();
   await expect(page.getByRole("heading", { name: "Common living room" })).toBeVisible();
-  await expect(page.getByText("Shared on laptop · 24 source photos saved")).toBeVisible();
+  await expect(page.getByText(`Shared on laptop · ${TOTAL_CAPTURE_SLOTS} source photos saved`)).toBeVisible();
 });
 
 test("offers a secure guided phone capture route without horizontal overflow", async ({ page }) => {
@@ -100,7 +102,7 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await expect(page.getByText("Secure live camera required")).toBeVisible();
   await expect(page.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
-  await expect(page.getByText("0 / 24")).toBeVisible();
+  await expect(page.getByText(`0 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
 
   const dialGeometry = await page
     .locator('[aria-label="Current rotation coverage"] > div')
@@ -128,7 +130,7 @@ test("offers a secure guided phone capture route without horizontal overflow", a
       };
     });
 
-  expect(dialGeometry.nodeCount).toBe(8);
+  expect(dialGeometry.nodeCount).toBe(CAPTURE_COLUMNS);
   expect(Math.max(...dialGeometry.radii) - Math.min(...dialGeometry.radii)).toBeLessThan(2);
   expect(Math.abs(dialGeometry.centroid.x - dialGeometry.center.x)).toBeLessThan(1);
   expect(Math.abs(dialGeometry.centroid.y - dialGeometry.center.y)).toBeLessThan(1);
@@ -163,7 +165,7 @@ test("keeps a generated room interactive when WebGL is unavailable", async ({ pa
   });
 
   await page.goto("/");
-  await page.evaluate(async () => {
+  await page.evaluate(async (photoCount) => {
     const panorama = await fetch("/images/tours/flagship/arrival-2048.webp").then((response) => response.blob());
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("astra3d-room-studio", 1);
@@ -181,7 +183,7 @@ test("keeps a generated room interactive when WebGL is unavailable", async ({ pa
         id: "latest-room",
         name: "Compatibility room",
         createdAt: new Date().toISOString(),
-        photoCount: 24,
+        photoCount,
         panorama,
         processor: "laptop",
       });
@@ -189,7 +191,7 @@ test("keeps a generated room interactive when WebGL is unavailable", async ({ pa
       transaction.onerror = () => reject(transaction.error);
     });
     database.close();
-  });
+  }, TOTAL_CAPTURE_SLOTS);
 
   await page.goto("/studio/");
   await page.getByRole("button", { name: /Open saved room Compatibility room/ }).click();
@@ -212,7 +214,7 @@ test("keeps a generated room interactive when WebGL is unavailable", async ({ pa
 });
 
 test("captures live still targets and requires all three tilt bands", async ({ page }) => {
-  test.setTimeout(50_000);
+  test.setTimeout(90_000);
   await page.addInitScript(() => {
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
       configurable: true,
@@ -242,12 +244,12 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
   await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, 8);
+  await completeGuidedBand(page, 55, CAPTURE_COLUMNS);
   await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
   await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, 16);
+  await completeGuidedBand(page, 125, CAPTURE_COLUMNS * 2);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
 });
@@ -287,19 +289,19 @@ test("switches to manual capture, zooms the saved crop, and retakes any captured
 
   await page.getByRole("button", { name: "Begin eye-level capture" }).click();
   await page.getByRole("button", { name: "Capture target 1" }).click();
-  await expect(page.getByText("1 / 24")).toBeVisible();
+  await expect(page.getByText(`1 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth)).toBeCloseTo(750, 0);
 
   await page.getByRole("button", { name: "Capture target 2" }).click();
-  await expect(page.getByText("2 / 24")).toBeVisible();
-  await page.getByRole("button", { name: "Retake Eye level direction 1" }).click();
-  await expect(page.getByRole("button", { name: "Retake direction 1" })).toBeVisible();
-  await page.getByRole("button", { name: "Retake direction 1" }).click();
+  await expect(page.getByText(`2 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await page.getByRole("button", { name: "Retake Eye level direction 1", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retake direction 1", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Retake direction 1", exact: true }).click();
 
-  await expect(page.getByText("2 / 24")).toBeVisible();
+  await expect(page.getByText(`2 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
   await expect(page.getByRole("button", { name: "Capture target 3" })).toBeVisible();
   await page.getByRole("button", { name: "Retake previous captured view" }).click();
-  await expect(page.getByRole("button", { name: "Retake direction 2" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retake direction 2", exact: true })).toBeVisible();
 
   const dimensions = await page.evaluate(() => ({
     viewportWidth: window.innerWidth,
@@ -370,9 +372,9 @@ test("uses real 0.6x hardware zoom and exposes an available ultrawide lens", asy
   await expect(lensPicker).toBeDisabled();
 });
 
-test("processes the 24 guided stills on the laptop and returns a generated room", async ({ page }, testInfo) => {
+test("processes every guided still on the laptop and returns a generated room", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
-  test.setTimeout(55_000);
+  test.setTimeout(95_000);
 
   await page.addInitScript(() => {
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 900 });
@@ -423,9 +425,9 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
   await beginGuidedBand(page, "Begin eye-level capture", 90);
   await completeGuidedBand(page, 90, 0);
   await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, 8);
+  await completeGuidedBand(page, 55, CAPTURE_COLUMNS);
   await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, 16);
+  await completeGuidedBand(page, 125, CAPTURE_COLUMNS * 2);
 
   const processingResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/panorama") && response.request().method() === "POST",
@@ -438,8 +440,8 @@ test("processes the 24 guided stills on the laptop and returns a generated room"
   await expect(page.locator('[data-panorama-ready="true"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Download 360 JPG/i })).toBeEnabled();
   await expect(page.getByText("Feature-aligned result")).toBeVisible();
-  await expect(page.getByText("21 / 24")).toBeVisible();
+  await expect(page.getByText(`21 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
   await expect(page.getByText("88%")).toBeVisible();
   await expect(page.getByText("98%")).toBeVisible();
-  await expect(page.getByText("Shared on laptop · 24 source photos saved")).toBeVisible();
+  await expect(page.getByText(`Shared on laptop · ${TOTAL_CAPTURE_SLOTS} source photos saved`)).toBeVisible();
 });

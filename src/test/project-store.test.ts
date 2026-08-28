@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildCaptureSlots } from "@/lib/capture-plan";
+import { buildCaptureSlots, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import type { ServerPanoramaFrame } from "@/server/panorama-processor";
 
 let testRoot: string | null = null;
@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("shared laptop project store", () => {
-  it("atomically saves the panorama, manifest, and all 24 original captures", async () => {
+  it("atomically saves the panorama, manifest, and every original capture", async () => {
     testRoot = await mkdtemp(path.join(tmpdir(), "astra3d-project-test-"));
     process.env.ASTRA3D_DATA_DIR = testRoot;
     const store = await import("@/server/project-store");
@@ -48,12 +48,12 @@ describe("shared laptop project store", () => {
       },
     });
 
-    expect(project).toMatchObject({ name: "Living room", photoCount: 24, hasSourceFrames: true });
+    expect(project).toMatchObject({ name: "Living room", photoCount: TOTAL_CAPTURE_SLOTS, hasSourceFrames: true });
     await expect(store.listProjects()).resolves.toEqual([project]);
     const stored = await store.readProjectPanorama(project.id);
     expect(stored?.panorama.toString()).toBe("panorama");
     const frameFiles = await readdir(path.join(store.projectStorePaths.projectsRoot, project.id, "frames"));
-    expect(frameFiles).toHaveLength(24);
+    expect(frameFiles).toHaveLength(TOTAL_CAPTURE_SLOTS);
     expect(frameFiles[0]).toMatch(/^01-middle-1\.jpg$/);
   });
 
@@ -63,11 +63,11 @@ describe("shared laptop project store", () => {
     const store = await import("@/server/project-store");
     const project = await store.savePanoramaProject({
       name: "Legacy room",
-      photoCount: 24,
+      photoCount: TOTAL_CAPTURE_SLOTS,
       panorama: Buffer.from("legacy-panorama"),
     });
 
-    expect(project).toMatchObject({ photoCount: 24, hasSourceFrames: false });
+    expect(project).toMatchObject({ photoCount: TOTAL_CAPTURE_SLOTS, hasSourceFrames: false });
     const framePath = path.join(store.projectStorePaths.projectsRoot, project.id, "frames");
     await expect(readdir(framePath)).rejects.toThrow();
   });

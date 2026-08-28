@@ -19,6 +19,7 @@ import {
 } from "react";
 
 import { PanoramaCanvas } from "@/components/tour/panorama-canvas";
+import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import { clampPanoramaView, orientationToView, wrapDegrees } from "@/components/tour/tour-math";
 import type { GeneratedRoomRecord } from "@/types/capture";
 
@@ -262,7 +263,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
           </p>
         </div>
         <span className={styles.localBadge}>
-          {room.serverProjectId ? "Shared on laptop" : "Private"} · {room.hasSourceFrames ? "24 source photos saved" : room.processor === "laptop" ? "laptop processed" : "on device"}
+          {room.serverProjectId ? "Shared on laptop" : "Private"} · {room.hasSourceFrames ? `${room.photoCount} source photos saved` : room.processor === "laptop" ? "laptop processed" : "on device"}
         </span>
       </div>
 
@@ -368,7 +369,7 @@ export function GeneratedRoomViewer({ room, onRetake }: GeneratedRoomViewerProps
             <span>OpenCV checked every neighboring view before blending.</span>
           </div>
           <dl>
-            <div><dt>Matched overlaps</dt><dd>{room.quality.matchedPairs} / 24</dd></div>
+            <div><dt>Matched overlaps</dt><dd>{room.quality.matchedPairs} / {TOTAL_CAPTURE_SLOTS}</dd></div>
             <div><dt>Alignment</dt><dd>{alignmentPercent}%</dd></div>
             <div><dt>Coverage</dt><dd>{coveragePercent}%</dd></div>
           </dl>

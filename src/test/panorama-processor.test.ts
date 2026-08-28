@@ -2,7 +2,7 @@ import sharp from "sharp";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { buildCaptureSlots } from "@/lib/capture-plan";
+import { buildCaptureSlots, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import {
   composeRoomPanorama,
   processRoomPanorama,
@@ -92,7 +92,7 @@ describe("laptop panorama processor", () => {
 
   it("rejects incomplete capture plans before decoding images", async () => {
     await expect(composeRoomPanorama([], { width: 640, height: 320 })).rejects.toThrow(
-      "Expected 24 capture frames",
+      `Expected ${TOTAL_CAPTURE_SLOTS} capture frames`,
     );
   });
 });

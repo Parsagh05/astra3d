@@ -19,7 +19,7 @@ import argparse
 import json
 from pathlib import Path
 
-from harness import format_result, run_case
+from harness import TOTAL_SLOTS, format_result, run_case
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -87,7 +87,7 @@ CASES = [
         "max_rmse": 50.0,
         "better_than": "hdr-control",
         "fewer_clipped_than": "hdr-control",
-        "expect_fused": 24,
+        "expect_fused": TOTAL_SLOTS,
         "slow": False,
     },
     {
@@ -121,6 +121,15 @@ CASES = [
         "slow": False,
     },
     {
+        "label": "lens-calibration",
+        "title": "Unknown lens, measured from the photographs",
+        "why": "Phones rarely report a usable focal length and a 3:4 crop, a 16:9 crop and an ultrawide differ by tens of degrees. The capture is shot through a 59 degree lens and the stitcher is told nothing.",
+        "args": {"perturb": True, "imu": True, "lens_fov": 59.0, "measure_lens": True},
+        "max_rmse": 34.0,
+        "expect_lens_within": 4.0,
+        "slow": False,
+    },
+    {
         "label": "plain-room",
         "title": "Plain room, uneven turns, SIFT only",
         "why": "Regression guard for the retake loop: a bare-walled room turned unevenly, with no learned matcher available, must still return a panorama instead of demanding retakes the user cannot improve on.",
@@ -130,7 +139,7 @@ CASES = [
             "frame_width": 1200, "output_width": 3072,
         },
         "max_rmse": None,
-        "min_matched": 12,
+        "min_matched": 18,
         "slow": False,
     },
 ]
@@ -154,7 +163,7 @@ def check(case: dict, result: dict, results: dict[str, dict]) -> list[str]:
         failures.append(f"rmse {result['rmse']} exceeds budget {case['max_rmse']}")
     if result["stitchSeconds"] > MAX_STITCH_SECONDS:
         failures.append(f"stitch took {result['stitchSeconds']}s, over {MAX_STITCH_SECONDS}s budget")
-    min_matched = case.get("min_matched", 24)
+    min_matched = case.get("min_matched", TOTAL_SLOTS)
     if result["matchedPairs"] < min_matched:
         failures.append(f"matched only {result['matchedPairs']} of {min_matched} required overlaps")
     if result["coverage"] is None or result["coverage"] < 0.99:
@@ -185,6 +194,15 @@ def check(case: dict, result: dict, results: dict[str, dict]) -> list[str]:
         failures.append(
             f"projected source width {result['sourceWidth']}, expected {case['expect_source_width']}"
         )
+    if "expect_lens_within" in case:
+        if not result.get("lensMeasured"):
+            failures.append("the lens was not measured from the capture")
+        else:
+            error = abs(result["horizontalFov"] - result["trueFov"])
+            if error > case["expect_lens_within"]:
+                failures.append(
+                    f"measured {result['horizontalFov']} deg for a {result['trueFov']} deg lens"
+                )
     if "max_fallback" in case and (result["fallbackPairs"] or 0) > case["max_fallback"]:
         failures.append(f"{result['fallbackPairs']} fallback pairs, budget {case['max_fallback']}")
     if "min_learned" in case and (result["learnedPairs"] or 0) < case["min_learned"]:
@@ -219,7 +237,7 @@ def write_report(rows: list[tuple[dict, dict, list[str]]], passed: bool) -> None
         lines.append(
             f"| {case['title']} | {result['rmse']} | {result['zones']['upper']} | "
             f"{f'{clipped:.1%}' if clipped is not None else '-'} | "
-            f"{result['matchedPairs']}/24 | {result['fusedFrames'] or 0} | "
+            f"{result['matchedPairs']}/{TOTAL_SLOTS} | {result['fusedFrames'] or 0} | "
             f"{result['stitchSeconds']}s | {status} |"
         )
 

@@ -8,17 +8,18 @@ the result against the image it was rendered from. Lower RMSE is better.
 
 | Case | RMSE | Ceiling zone | Clipped highlights | Matched | Fused | Stitch | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ideal capture | 28.34 | 23.5 | 0.0% | 24/24 | 0 | 4.0s | pass |
-| Realistic sloppy capture | 30.88 | 25.2 | 0.0% | 24/24 | 0 | 3.8s | pass |
-| Sloppy capture + motion data | 31.35 | 25.6 | 0.0% | 24/24 | 0 | 4.1s | pass |
-| Tilted phone, no motion data | 29.08 | 21.1 | 0.0% | 24/24 | 0 | 3.9s | pass |
-| Tilted phone + motion data | 26.63 | 20.9 | 0.0% | 24/24 | 0 | 3.9s | pass |
-| Blown-out windows, single exposure | 71.65 | 71.9 | 0.9% | 24/24 | 0 | 13.3s | pass |
-| Blown-out windows + exposure bracket | 43.93 | 43.4 | 0.0% | 24/24 | 24 | 18.5s | pass |
-| Full-resolution photo capture | 31.94 | 25.3 | 0.0% | 24/24 | 0 | 13.4s | pass |
-| Bare white walls, SIFT only | 16.0 | 16.9 | 0.0% | 15/24 | 0 | 3.2s | pass |
-| Bare white walls + learned matcher | 20.53 | 23.3 | 0.0% | 24/24 | 0 | 15.5s | pass |
-| Plain room, uneven turns, SIFT only | 22.09 | 18.9 | 0.0% | 16/24 | 0 | 12.5s | pass |
+| Ideal capture | 25.47 | 19.8 | 0.0% | 36/36 | 0 | 5.9s | pass |
+| Realistic sloppy capture | 27.95 | 26.8 | 0.0% | 36/36 | 0 | 5.5s | pass |
+| Sloppy capture + motion data | 26.38 | 23.2 | 0.0% | 36/36 | 0 | 5.9s | pass |
+| Tilted phone, no motion data | 29.52 | 23.2 | 0.0% | 36/36 | 0 | 5.5s | pass |
+| Tilted phone + motion data | 27.48 | 20.9 | 0.0% | 36/36 | 0 | 6.0s | pass |
+| Blown-out windows, single exposure | 71.35 | 74.8 | 4.9% | 36/36 | 0 | 25.5s | pass |
+| Blown-out windows + exposure bracket | 39.73 | 44.0 | 0.0% | 36/36 | 36 | 33.3s | pass |
+| Full-resolution photo capture | 24.41 | 22.7 | 0.0% | 36/36 | 0 | 26.4s | pass |
+| Bare white walls, SIFT only | rejected by quality gate | - | - | - | - | 1.5s | pass |
+| Bare white walls + learned matcher | 17.76 | 15.1 | 0.0% | 36/36 | 0 | 21.5s | pass |
+| Unknown lens, measured from the photographs | 27.85 | 30.5 | 0.0% | 36/36 | 0 | 13.4s | pass |
+| Plain room, uneven turns, SIFT only | 19.12 | 16.4 | 0.0% | 24/36 | 0 | 25.9s | pass |
 
 ## What each case proves
 
@@ -32,6 +33,7 @@ the result against the image it was rendered from. Lower RMSE is better.
 - **Full-resolution photo capture** (`full-resolution`) — ImageCapture-grade stills at 1800px feeding the 4096-wide export.
 - **Bare white walls, SIFT only** (`bare-walls-control`) — Control for learned matching: featureless walls starve SIFT, so the capture degrades or is rejected outright.
 - **Bare white walls + learned matcher** (`bare-walls-learned`) — The same room with SuperPoint+LightGlue rescue. Must stitch cleanly where SIFT-only was rejected.
+- **Unknown lens, measured from the photographs** (`lens-calibration`) — Phones rarely report a usable focal length and a 3:4 crop, a 16:9 crop and an ultrawide differ by tens of degrees. The capture is shot through a 59 degree lens and the stitcher is told nothing.
 - **Plain room, uneven turns, SIFT only** (`plain-room`) — Regression guard for the retake loop: a bare-walled room turned unevenly, with no learned matcher available, must still return a panorama instead of demanding retakes the user cannot improve on.
 
 Panorama images for every case are written to `output/` so the results can be

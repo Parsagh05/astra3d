@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import type { ServerPanoramaFrame } from "@/server/panorama-processor";
 import type { PanoramaQualityReport, SharedRoomProject } from "@/types/capture";
 
@@ -125,7 +126,7 @@ async function saveProject(
     id: projectId,
     name: cleanName(input.name),
     createdAt: cleanDate(input.createdAt),
-    photoCount: Math.max(0, Math.min(24, Math.round(input.photoCount))),
+    photoCount: Math.max(0, Math.min(TOTAL_CAPTURE_SLOTS, Math.round(input.photoCount))),
     hasSourceFrames: frames.length > 0,
     processor: "laptop",
     quality: input.quality,

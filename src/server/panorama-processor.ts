@@ -19,7 +19,12 @@ export const HIGH_RES_PANORAMA_WIDTH = 4096;
 /** Portrait still width that indicates real photo captures rather than preview grabs. */
 const HIGH_RES_FRAME_WIDTH = 1440;
 export const MAX_FRAME_BYTES = 5 * 1024 * 1024;
-export const MAX_CAPTURE_BYTES = 160 * 1024 * 1024;
+/**
+ * A complete capture is every slot, and each may carry an exposure bracket,
+ * so the package cap follows the plan instead of a number that quietly stops
+ * fitting when the plan grows.
+ */
+export const MAX_CAPTURE_BYTES = TOTAL_CAPTURE_SLOTS * 2 * MAX_FRAME_BYTES;
 
 export type ServerPanoramaFrame = {
   sequence: number;
@@ -233,6 +238,7 @@ export async function processRoomPanorama(
       "--width", String(width),
       "--height", String(height),
       "--quality", String(Math.max(70, Math.min(96, quality))),
+      "--columns", String(CAPTURE_COLUMNS),
       "--zoom", String(frames.reduce((sum, frame) => sum + (frame.zoom ?? 1), 0) / frames.length),
     ];
 

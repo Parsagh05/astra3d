@@ -1,6 +1,12 @@
 import type { CaptureBandId, CaptureSlot } from "@/types/capture";
 
-export const CAPTURE_COLUMNS = 8;
+/**
+ * Headings photographed per sweep.  Twelve keeps at least 40% overlap between
+ * neighbours on every phone we have measured - a narrow 3:4 crop sits near
+ * 53 degrees and an ultrawide near 90 - where eight left the narrow cameras
+ * under 25% and too thin to align across a plain wall.
+ */
+export const CAPTURE_COLUMNS = 12;
 export const CAPTURE_BANDS: readonly {
   id: CaptureBandId;
   label: string;

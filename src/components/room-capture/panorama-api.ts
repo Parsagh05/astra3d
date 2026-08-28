@@ -1,3 +1,4 @@
+import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import type { CapturedFrame, PanoramaQualityReport } from "@/types/capture";
 
 export type PanoramaProcessingPhase =
@@ -93,7 +94,7 @@ async function readServerError(response: Blob) {
       payload.error || "The laptop panorama processor rejected the capture.",
       payload.code ?? "PROCESSING_FAILED",
       Array.isArray(payload.retakeSequences)
-        ? payload.retakeSequences.filter((value) => Number.isInteger(value) && value >= 0 && value < 24)
+        ? payload.retakeSequences.filter((value) => Number.isInteger(value) && value >= 0 && value < TOTAL_CAPTURE_SLOTS)
         : [],
     );
   } catch {
@@ -130,7 +131,7 @@ function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
     fallbackPairs: numberHeader(request, "X-Astra3D-Fallback-Pairs", 0),
     matchedPairs: numberHeader(request, "X-Astra3D-Matched-Pairs", 0),
     retakeSequences: retakeHeader
-      ? retakeHeader.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0 && value < 24)
+      ? retakeHeader.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0 && value < TOTAL_CAPTURE_SLOTS)
       : [],
     warnings: parseWarnings(request.getResponseHeader("X-Astra3D-Warnings")),
   };
