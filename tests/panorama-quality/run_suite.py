@@ -99,12 +99,44 @@ CASES = [
         "expect_source_width": 1800,
         "slow": True,
     },
+    {
+        "label": "bare-walls-control",
+        "title": "Bare white walls, SIFT only",
+        "why": "Control for learned matching: featureless walls starve SIFT, so the capture degrades or is rejected outright.",
+        "args": {"bare_walls": True, "matcher": "sift"},
+        "max_rmse": None,
+        "expect_degraded": True,
+        "needs_model": True,
+        "slow": False,
+    },
+    {
+        "label": "bare-walls-learned",
+        "title": "Bare white walls + learned matcher",
+        "why": "The same room with SuperPoint+LightGlue rescue. Must stitch cleanly where SIFT-only was rejected.",
+        "args": {"bare_walls": True, "matcher": "auto"},
+        "max_rmse": 30.0,
+        "max_fallback": 2,
+        "min_learned": 1,
+        "needs_model": True,
+        "slow": False,
+    },
 ]
+
+MATCHER_MODEL = REPO / "scripts" / "models" / "superpoint_lightglue_pipeline.onnx"
 
 
 def check(case: dict, result: dict, results: dict[str, dict]) -> list[str]:
     """Returns the list of budget violations for one case."""
     failures = []
+    if case.get("expect_degraded"):
+        # A hostile control passes by being rejected or by leaning hard on
+        # fallbacks; a clean stitch here would mean the scenario is too easy.
+        if not result.get("rejected") and (result.get("fallbackPairs") or 0) < 4:
+            failures.append("control stitched cleanly; the scenario no longer stresses SIFT")
+        return failures
+    if result.get("rejected"):
+        return [f"capture rejected by the quality gate: {result.get('rejectionMessage')}"]
+
     if case["max_rmse"] is not None and result["rmse"] > case["max_rmse"]:
         failures.append(f"rmse {result['rmse']} exceeds budget {case['max_rmse']}")
     if result["stitchSeconds"] > MAX_STITCH_SECONDS:
@@ -139,6 +171,12 @@ def check(case: dict, result: dict, results: dict[str, dict]) -> list[str]:
         failures.append(
             f"projected source width {result['sourceWidth']}, expected {case['expect_source_width']}"
         )
+    if "max_fallback" in case and (result["fallbackPairs"] or 0) > case["max_fallback"]:
+        failures.append(f"{result['fallbackPairs']} fallback pairs, budget {case['max_fallback']}")
+    if "min_learned" in case and (result["learnedPairs"] or 0) < case["min_learned"]:
+        failures.append(
+            f"only {result['learnedPairs']} learned rescues, expected at least {case['min_learned']}"
+        )
     return failures
 
 
@@ -156,12 +194,19 @@ def write_report(rows: list[tuple[dict, dict, list[str]]], passed: bool) -> None
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for case, result, failures in rows:
+        status = "pass" if not failures else "FAIL"
+        if result.get("rejected"):
+            lines.append(
+                f"| {case['title']} | rejected by quality gate | - | - | - | - | "
+                f"{result['stitchSeconds']}s | {status} |"
+            )
+            continue
         clipped = result["clippedHighlights"]
         lines.append(
             f"| {case['title']} | {result['rmse']} | {result['zones']['upper']} | "
             f"{f'{clipped:.1%}' if clipped is not None else '-'} | "
             f"{result['matchedPairs']}/24 | {result['fusedFrames'] or 0} | "
-            f"{result['stitchSeconds']}s | {'pass' if not failures else 'FAIL'} |"
+            f"{result['stitchSeconds']}s | {status} |"
         )
 
     lines += ["", "## What each case proves", ""]
@@ -192,8 +237,15 @@ def main() -> int:
     rows: list[tuple[dict, dict, list[str]]] = []
     passed = True
 
+    matcher_installed = MATCHER_MODEL.exists()
     for case in CASES:
         if args.quick and case["slow"]:
+            continue
+        if case.get("needs_model") and not matcher_installed:
+            print(
+                f"[{case['label']}] SKIPPED: matcher model not installed "
+                "(run npm run setup:panorama)"
+            )
             continue
         result = run_case(str(SOURCE), label=case["label"], keep_dir=OUTPUT, **case["args"])
         results[case["label"]] = result

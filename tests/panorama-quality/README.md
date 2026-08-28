@@ -53,3 +53,10 @@ result that actually kept more detail.
 Several cases are paired with a control run that withholds the input a feature
 depends on. Those checks assert the feature run beats its control, so they
 prove the feature works rather than only asserting an absolute number.
+
+The bare-wall pair works the same way: the control stitches a room whose wall
+band has been washed out to near-featureless paint using SIFT only, which is
+expected to degrade or be rejected, and the learned case must stitch the same
+room cleanly through the SuperPoint+LightGlue rescue matcher. Both cases are
+skipped when the matcher model is not installed
+(`npm run setup:panorama` downloads it).

@@ -30,6 +30,7 @@ next-env.d.ts
 /tmp/
 /.astra3d-data/
 /tests/panorama-quality/output/
+/scripts/models/
 __pycache__/
 *.py[cod]
 

@@ -100,6 +100,25 @@ def render_frame(equirect, yaw_deg, pitch_deg, roll_deg, width, height):
     return cv2.remap(equirect, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)
 
 
+def flatten_walls(source: np.ndarray, strength: float = 0.97) -> np.ndarray:
+    """Simulates a bare-walled room by washing out the wall band's texture.
+
+    The wall latitudes are blended almost entirely toward a heavy blur, which
+    starves SIFT of features the way bare paint does, while faint gradients
+    and soft shadows survive for a learned matcher to lock onto. The returned
+    image is the scene's new ground truth.
+    """
+    height = source.shape[0]
+    blurred = cv2.GaussianBlur(source, (0, 0), sigmaX=max(4.0, source.shape[1] / 64))
+    # Full flattening between latitudes +55 and -25 (the wall band), feathered
+    # over ~8 degrees so no artificial texture edge is introduced.
+    latitudes = 90.0 - (np.arange(height, dtype=np.float32) + 0.5) * (180.0 / height)
+    upper = np.clip((55.0 - latitudes) / 8.0, 0.0, 1.0)
+    lower = np.clip((latitudes + 25.0) / 8.0, 0.0, 1.0)
+    alpha = (strength * upper * lower)[:, None, None]
+    return (source.astype(np.float32) * (1 - alpha) + blurred.astype(np.float32) * alpha).astype(np.uint8)
+
+
 def ground_truth_poses(perturb: bool, roll: float = 0.0, seed: int = 7):
     """The poses the capture actually used, ideal or realistically sloppy.
 
@@ -169,6 +188,8 @@ def run_case(
     imu: bool = False,
     bracket: bool = False,
     clip_highlights: bool = False,
+    bare_walls: bool = False,
+    matcher: str = "auto",
     frame_width: int = FRAME_WIDTH,
     output_width: int = 1536,
     stitcher: str | Path = DEFAULT_STITCHER,
@@ -178,6 +199,8 @@ def run_case(
     source = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
     if source is None:
         raise SystemExit(f"could not read source {source_path}")
+    if bare_walls:
+        source = flatten_walls(source)
 
     frame_height = round(frame_width * 4 / 3)
     poses = ground_truth_poses(perturb, roll)
@@ -212,12 +235,23 @@ def run_case(
                 "--report", str(report_path),
                 "--width", str(output_width),
                 "--height", str(output_width // 2),
+                "--matcher", matcher,
             ],
             capture_output=True,
             text=True,
         )
         stitch_seconds = time.perf_counter() - started
         report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+        if completed.returncode == 2:
+            # The stitcher's quality gate refused the capture: a legitimate,
+            # measurable outcome for hostile control cases.
+            return {
+                "label": label,
+                "rejected": True,
+                "rejectionMessage": report.get("message"),
+                "retakeSequences": report.get("retakeSequences"),
+                "stitchSeconds": round(stitch_seconds, 1),
+            }
         if completed.returncode != 0:
             raise SystemExit(
                 f"[{label}] stitcher failed rc={completed.returncode}\n"
@@ -233,6 +267,7 @@ def run_case(
 
         return {
             "label": label,
+            "rejected": False,
             "rmse": round(rmse, 2),
             "zones": {name: round(value, 1) for name, value in zones.items()},
             "clippedHighlights": round(clipped, 3) if clipped is not None else None,
@@ -246,6 +281,8 @@ def run_case(
             "coverage": report.get("coverage"),
             "fusedFrames": report.get("fusedFrames"),
             "sourceWidth": report.get("sourceWidth"),
+            "matcher": report.get("matcher"),
+            "learnedPairs": report.get("learnedPairs"),
             "crossBand": report.get("crossBand"),
         }
 
@@ -258,13 +295,18 @@ def write_jpeg(path: Path, image) -> None:
 
 
 def format_result(result: dict) -> str:
+    if result.get("rejected"):
+        return (
+            f"[{result['label']}] REJECTED by quality gate: "
+            f"{result.get('rejectionMessage')} (stitchSec={result['stitchSeconds']})"
+        )
     zones = result["zones"]
     line = (
         f"[{result['label']}] rmse={result['rmse']} "
         f"zones=up:{zones['upper']}/mid:{zones['middle']}/low:{zones['lower']} "
         f"matched={result['matchedPairs']} fallback={result['fallbackPairs']} "
-        f"coverage={result['coverage']} fused={result['fusedFrames']} "
-        f"stitchSec={result['stitchSeconds']}"
+        f"learned={result['learnedPairs']} coverage={result['coverage']} "
+        f"fused={result['fusedFrames']} stitchSec={result['stitchSeconds']}"
     )
     if result["clippedHighlights"] is not None:
         line += f" clipped={result['clippedHighlights']}"
@@ -281,6 +323,8 @@ def main() -> None:
     parser.add_argument("--imu", action="store_true")
     parser.add_argument("--bracket", action="store_true")
     parser.add_argument("--clip-highlights", action="store_true")
+    parser.add_argument("--bare-walls", action="store_true")
+    parser.add_argument("--matcher", choices=["auto", "sift"], default="auto")
     parser.add_argument("--frame-width", type=int, default=FRAME_WIDTH)
     parser.add_argument("--width", type=int, default=1536)
     parser.add_argument("--keep", default="")
@@ -294,6 +338,8 @@ def main() -> None:
         imu=args.imu,
         bracket=args.bracket,
         clip_highlights=args.clip_highlights,
+        bare_walls=args.bare_walls,
+        matcher=args.matcher,
         frame_width=args.frame_width,
         output_width=args.width,
         stitcher=args.stitcher,

@@ -44,6 +44,8 @@ CAPTURE_COLUMNS = 8
 BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
 MIN_KEYPOINTS = 24
 MIN_PAIR_INLIERS = 9
+# LightGlue matches are mutual and score-filtered, so fewer suffice.
+MIN_LEARNED_INLIERS = 6
 MAX_BAND_YAW_OFFSET = 25.0
 MAX_FRAME_ROLL = 15.0
 # Full-resolution photo stills are projected at up to this width; the
@@ -243,40 +245,39 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
     return frames
 
 
-def estimate_pair(
-    previous: PreparedFrame,
-    current: PreparedFrame,
-    horizontal_fov: float,
-    expected_dx: float | None = None,
-) -> tuple[float, float, int, float] | None:
+def sift_pair_deltas(previous: PreparedFrame, current: PreparedFrame) -> list[tuple[float, float, float, float]]:
+    """Ratio-tested SIFT correspondences as (x0, y0, x1, y1) tuples."""
     if previous.descriptors is None or current.descriptors is None:
-        return None
-
+        return []
     matcher = cv2.BFMatcher(cv2.NORM_L2)
     candidates = matcher.knnMatch(previous.descriptors, current.descriptors, k=2)
-    width = min(previous.image.shape[1], current.image.shape[1])
-    expected_step = width * (45.0 / horizontal_fov)
-    deltas: list[tuple[float, float]] = []
+    correspondences: list[tuple[float, float, float, float]] = []
     for pair in candidates:
         if len(pair) != 2 or pair[0].distance >= 0.72 * pair[1].distance:
             continue
         match = pair[0]
         p0 = previous.keypoints[match.queryIdx].pt
         p1 = current.keypoints[match.trainIdx].pt
-        dx = p0[0] - p1[0]
-        dy = p0[1] - p1[1]
-        if width * 0.28 <= dx <= width * 0.92 and abs(dy) <= previous.image.shape[0] * 0.22:
-            deltas.append((dx, dy))
+        correspondences.append((p0[0], p0[1], p1[0], p1[1]))
+    return correspondences
 
-    if len(deltas) < MIN_PAIR_INLIERS:
+
+def refine_pair_estimate(
+    deltas: list[tuple[float, float]],
+    width: float,
+    horizontal_fov: float,
+    expected_dx: float | None,
+    min_inliers: int,
+) -> tuple[float, float, int, float] | None:
+    """Robust-median refinement and plausibility gating of pair deltas."""
+    if len(deltas) < min_inliers:
         return None
-
     values = np.asarray(deltas, dtype=np.float32)
     median = np.median(values, axis=0)
     residuals = np.linalg.norm(values - median, axis=1)
     threshold = max(3.0, float(np.median(residuals) * 2.8))
     inliers = values[residuals <= threshold]
-    if len(inliers) < MIN_PAIR_INLIERS:
+    if len(inliers) < min_inliers:
         return None
     refined = np.median(inliers, axis=0)
     spread = float(np.median(np.linalg.norm(inliers - refined, axis=1)))
@@ -285,9 +286,54 @@ def estimate_pair(
     if expected_dx is not None:
         if abs(float(refined[0]) - expected_dx) > width * 0.22:
             return None
-    elif abs(float(refined[0]) - expected_step) > width * 0.34:
+    elif abs(float(refined[0]) - width * (45.0 / horizontal_fov)) > width * 0.34:
         return None
     return float(refined[0]), float(refined[1]), int(len(inliers)), spread
+
+
+def estimate_pair(
+    previous: PreparedFrame,
+    current: PreparedFrame,
+    horizontal_fov: float,
+    expected_dx: float | None = None,
+    learned: "Any | None" = None,
+) -> tuple[tuple[float, float, int, float], bool] | tuple[None, bool]:
+    """Estimates one in-band step; SIFT first, learned matcher as rescue.
+
+    Returns ((dx, dy, inliers, spread), used_learned) or (None, False).
+    """
+    width = min(previous.image.shape[1], current.image.shape[1])
+    height = previous.image.shape[0]
+
+    def filtered_deltas(correspondences: list[tuple[float, float, float, float]]):
+        deltas: list[tuple[float, float]] = []
+        for x0, y0, x1, y1 in correspondences:
+            dx = x0 - x1
+            dy = y0 - y1
+            if width * 0.28 <= dx <= width * 0.92 and abs(dy) <= height * 0.22:
+                deltas.append((dx, dy))
+        return deltas
+
+    estimate = refine_pair_estimate(
+        filtered_deltas(sift_pair_deltas(previous, current)),
+        width, horizontal_fov, expected_dx, MIN_PAIR_INLIERS,
+    )
+    if estimate is not None:
+        return estimate, False
+
+    # Bare walls starve SIFT; the learned matcher still locks onto faint
+    # paint gradients and soft shadows.
+    if learned is not None and learned.available():
+        correspondences = learned.match_pair(
+            previous.gray, current.gray, previous.mask, current.mask,
+        )
+        estimate = refine_pair_estimate(
+            filtered_deltas([tuple(row) for row in correspondences]),
+            width, horizontal_fov, expected_dx, MIN_LEARNED_INLIERS,
+        )
+        if estimate is not None:
+            return estimate, True
+    return None, False
 
 
 def imu_pair_step(
@@ -312,6 +358,7 @@ def band_positions(
     band_frames: list[PreparedFrame],
     horizontal_fov: float,
     imu_poses: dict[int, tuple[float, float, float]],
+    learned: "Any | None" = None,
 ) -> tuple[list[float], list[float], float, list[int], list[dict[str, Any]]]:
     width = float(band_frames[0].image.shape[1])
     focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
@@ -324,11 +371,12 @@ def band_positions(
         previous = band_frames[column]
         current = band_frames[(column + 1) % CAPTURE_COLUMNS]
         imu_step = imu_pair_step(imu_poses, previous.sequence, current.sequence, focal)
-        estimate = estimate_pair(
+        estimate, used_learned = estimate_pair(
             previous,
             current,
             horizontal_fov,
             imu_step[0] if imu_step is not None else None,
+            learned,
         )
         if estimate is None:
             estimates.append(imu_step if imu_step is not None else (nominal_step, 0.0))
@@ -350,6 +398,7 @@ def band_positions(
                 "inliers": inliers,
                 "spread": round(spread, 2),
                 "fallback": False,
+                "learned": used_learned,
             }
         )
 
@@ -377,6 +426,7 @@ def estimate_band_alignment(
     direction: int,
     middle_yaws: list[float],
     other_yaws: list[float],
+    learned: "Any | None" = None,
 ) -> tuple[float, float, int] | None:
     """Matches each column against the eye-level band to measure the tilted
     band's true yaw offset and pitch instead of trusting the guided targets.
@@ -388,51 +438,63 @@ def estimate_band_alignment(
     height = float(middle_frames[0].image.shape[0])
     focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
     center_y = (height - 1.0) * 0.5
-    matcher = cv2.BFMatcher(cv2.NORM_L2)
     offset_estimates: list[float] = []
     pitch_estimates: list[float] = []
     matched_columns = 0
 
-    for column in range(CAPTURE_COLUMNS):
-        middle = middle_frames[column]
-        other = other_frames[column]
-        if middle.descriptors is None or other.descriptors is None:
-            continue
-        candidates = matcher.knnMatch(middle.descriptors, other.descriptors, k=2)
+    def column_samples(
+        correspondences: list[tuple[float, float, float, float]],
+    ) -> list[tuple[float, float]]:
         samples: list[tuple[float, float]] = []
-        for pair in candidates:
-            if len(pair) != 2 or pair[0].distance >= 0.72 * pair[1].distance:
-                continue
-            match = pair[0]
-            p_mid = middle.keypoints[match.queryIdx].pt
-            p_oth = other.keypoints[match.trainIdx].pt
-            dx = p_mid[0] - p_oth[0]
-            dy = p_mid[1] - p_oth[1]
+        for x_mid, y_mid, x_oth, y_oth in correspondences:
+            dx = x_mid - x_oth
+            dy = y_mid - y_oth
             if abs(dx) > width * 0.30:
                 continue
             if not 0.30 * focal <= dy * direction * -1.0 <= 1.05 * focal:
                 continue
             pitch_sample = math.degrees(
-                math.atan2(center_y - p_mid[1], focal) - math.atan2(center_y - p_oth[1], focal)
+                math.atan2(center_y - y_mid, focal) - math.atan2(center_y - y_oth, focal)
             )
-            yaw_sample = math.degrees(dx / focal)
-            samples.append((yaw_sample, pitch_sample))
-        if len(samples) < MIN_PAIR_INLIERS:
-            continue
+            samples.append((math.degrees(dx / focal), pitch_sample))
+        return samples
+
+    def refine_column(samples: list[tuple[float, float]], min_inliers: int):
+        if len(samples) < min_inliers:
+            return None
         values = np.asarray(samples, dtype=np.float32)
         median = np.median(values, axis=0)
         residuals = np.linalg.norm(values - median, axis=1)
         threshold = max(0.75, float(np.median(residuals) * 2.8))
         inliers = values[residuals <= threshold]
-        if len(inliers) < MIN_PAIR_INLIERS:
-            continue
+        if len(inliers) < min_inliers:
+            return None
         refined = np.median(inliers, axis=0)
         pitch_estimate = float(refined[1])
         if not 24.0 <= pitch_estimate * direction <= 46.0:
+            return None
+        return float(refined[0]), pitch_estimate
+
+    for column in range(CAPTURE_COLUMNS):
+        middle = middle_frames[column]
+        other = other_frames[column]
+        refined = refine_column(
+            column_samples(sift_pair_deltas(middle, other)), MIN_PAIR_INLIERS,
+        )
+        if refined is None and learned is not None and learned.available():
+            correspondences = learned.match_pair(
+                middle.gray, other.gray, middle.mask, other.mask,
+            )
+            refined = refine_column(
+                column_samples([tuple(row) for row in correspondences]),
+                MIN_LEARNED_INLIERS,
+            )
+        if refined is None:
             continue
+        yaw_sample, pitch_estimate = refined
         # The tilted band's cylindrical warp compresses azimuth by roughly
         # cos(pitch), so the raw x delta underestimates the yaw difference.
-        yaw_delta = float(refined[0]) / max(0.5, math.cos(math.radians(pitch_estimate)))
+        yaw_delta = yaw_sample / max(0.5, math.cos(math.radians(pitch_estimate)))
         offset_estimates.append(
             wrap_degrees(middle_yaws[column] + yaw_delta - other_yaws[column])
         )
@@ -476,12 +538,20 @@ def imu_band_alignment(
     return yaw_offset, band_pitch
 
 
-def choose_retakes(frames: list[PreparedFrame], weak_by_band: dict[str, list[int]]) -> list[int]:
+def choose_retakes(
+    frames: list[PreparedFrame],
+    weak_by_band: dict[str, list[int]],
+    learned_available: bool = False,
+) -> list[int]:
     retakes: set[int] = set()
     blur_scores = np.asarray([frame.blur_score for frame in frames], dtype=np.float32)
     blur_floor = max(16.0, float(np.percentile(blur_scores, 20) * 0.48))
     for frame in frames:
-        if frame.blur_score < blur_floor or len(frame.keypoints) < MIN_KEYPOINTS:
+        # A sparse SIFT keypoint count flags featureless walls, but when the
+        # learned matcher is installed those frames still align, so only real
+        # blur justifies a retake then.
+        too_few_features = not learned_available and len(frame.keypoints) < MIN_KEYPOINTS
+        if frame.blur_score < blur_floor or too_few_features:
             retakes.add(frame.sequence)
 
     for band_index, (band, _) in enumerate(BANDS):
@@ -754,6 +824,16 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     timer = StageTimer()
     input_dir = Path(args.input)
     imu_poses = load_imu_poses(input_dir)
+
+    learned = None
+    if args.matcher != "sift":
+        try:
+            from learned_matcher import LearnedMatcher
+
+            learned = LearnedMatcher()
+        except ImportError:
+            learned = None
+
     frames = prepare_frames(input_dir, registration_width, effective_fov)
     timer.mark("prepare")
     positions: dict[str, tuple[list[float], list[float], float]] = {}
@@ -765,6 +845,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             band_frames,
             effective_fov,
             imu_poses,
+            learned,
         )
         positions[band] = (x_positions, y_positions, circumference)
         weak_by_band[band] = weak_pairs
@@ -787,6 +868,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             direction,
             middle_yaw_ring,
             band_yaw_ring,
+            learned,
         )
         if alignment is not None:
             yaw_offset, band_pitch, matched_columns = alignment
@@ -823,7 +905,9 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             roll = wrap_degrees(pose[2] - reference_roll)
             frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
 
-    retake_sequences = choose_retakes(frames, weak_by_band)
+    retake_sequences = choose_retakes(
+        frames, weak_by_band, learned is not None and learned.available(),
+    )
     fallback_pairs = sum(len(pairs) for pairs in weak_by_band.values())
     if fallback_pairs > 9 or len(retake_sequences) > 6:
         human_directions = ", ".join(str(sequence + 1) for sequence in retake_sequences[:6])
@@ -900,6 +984,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "crossBand": cross_band_report,
         "fusedFrames": sum(1 for frame in frames if frame.fused),
         "sourceWidth": int(np.median([frame.source.shape[1] for frame in frames])),
+        "matcher": "sift+superpoint-lightglue" if learned is not None and learned.available() else "sift",
+        "learnedPairs": sum(1 for report in pair_reports if report.get("learned")),
     }
 
 
@@ -913,6 +999,12 @@ def main() -> int:
     parser.add_argument("--quality", type=int, default=90)
     parser.add_argument("--horizontal-fov", type=float, default=72.0)
     parser.add_argument("--zoom", type=float, default=1.0)
+    parser.add_argument(
+        "--matcher",
+        choices=["auto", "sift"],
+        default="auto",
+        help="auto uses the learned matcher to rescue low-texture overlaps when its model is installed",
+    )
     args = parser.parse_args()
     report_path = Path(args.report)
     try:
