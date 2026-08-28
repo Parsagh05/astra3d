@@ -42,7 +42,6 @@ class StageTimer:
 
 CAPTURE_COLUMNS = 8
 BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
-MIN_KEYPOINTS = 24
 MIN_PAIR_INLIERS = 9
 # LightGlue matches are mutual and score-filtered, so fewer suffice.
 MIN_LEARNED_INLIERS = 6
@@ -128,6 +127,7 @@ class PreparedFrame:
     keypoints: list[Any]
     descriptors: np.ndarray | None
     blur_score: float
+    focus_score: float
     fused: bool = False
 
 
@@ -208,6 +208,21 @@ def load_fused_frame(input_dir: Path, sequence: int) -> tuple[np.ndarray, bool]:
         return image, False
 
 
+def focus_from_gray(gray: np.ndarray) -> float:
+    """Detail retained relative to the contrast actually present.
+
+    Raw Laplacian variance cannot tell a photograph apart from the surface it
+    shows: a perfectly focused bare wall scores lower than a blurred bookshelf
+    simply because a wall has nothing to resolve.  Dividing by the frame's own
+    contrast asks the honest question instead - given how much this view could
+    show, how much survived - so featureless walls score healthily while true
+    motion blur collapses toward zero.
+    """
+    detail = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    contrast = float(gray.astype(np.float32).var())
+    return detail / max(contrast, 1.0)
+
+
 def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: float) -> list[PreparedFrame]:
     detector = cv2.SIFT_create(nfeatures=1400, contrastThreshold=0.025, edgeThreshold=14)
     frames: list[PreparedFrame] = []
@@ -222,6 +237,7 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
             warped, mask = cylindrical_warp(image, horizontal_fov)
             gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
             blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            focus_score = focus_from_gray(gray)
             feature_mask = mask.copy()
             border = max(4, round(feature_mask.shape[1] * 0.04))
             feature_mask[:, :border] = 0
@@ -239,6 +255,7 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
                     keypoints=keypoints,
                     descriptors=descriptors,
                     blur_score=blur_score,
+                    focus_score=focus_score,
                     fused=fused,
                 )
             )
@@ -286,7 +303,7 @@ def refine_pair_estimate(
     if expected_dx is not None:
         if abs(float(refined[0]) - expected_dx) > width * 0.22:
             return None
-    elif abs(float(refined[0]) - width * (45.0 / horizontal_fov)) > width * 0.34:
+    elif abs(float(refined[0]) - width * (45.0 / horizontal_fov)) > width * 0.45:
         return None
     return float(refined[0]), float(refined[1]), int(len(inliers)), spread
 
@@ -305,12 +322,20 @@ def estimate_pair(
     width = min(previous.image.shape[1], current.image.shape[1])
     height = previous.image.shape[0]
 
+    if expected_dx is not None:
+        lowest, highest = expected_dx - width * 0.30, expected_dx + width * 0.30
+    else:
+        # Without motion data the turn could be anywhere from a cautious
+        # nudge to a hurried sweep, so the window spans roughly 13 to 79
+        # degrees rather than assuming the guided 45.
+        lowest, highest = width * 0.18, width * 1.10
+
     def filtered_deltas(correspondences: list[tuple[float, float, float, float]]):
         deltas: list[tuple[float, float]] = []
         for x0, y0, x1, y1 in correspondences:
             dx = x0 - x1
             dy = y0 - y1
-            if width * 0.28 <= dx <= width * 0.92 and abs(dy) <= height * 0.22:
+            if lowest <= dx <= highest and abs(dy) <= height * 0.22:
                 deltas.append((dx, dy))
         return deltas
 
@@ -541,26 +566,34 @@ def imu_band_alignment(
 def choose_retakes(
     frames: list[PreparedFrame],
     weak_by_band: dict[str, list[int]],
-    learned_available: bool = False,
 ) -> list[int]:
-    retakes: set[int] = set()
-    blur_scores = np.asarray([frame.blur_score for frame in frames], dtype=np.float32)
-    blur_floor = max(16.0, float(np.percentile(blur_scores, 20) * 0.48))
-    for frame in frames:
-        # A sparse SIFT keypoint count flags featureless walls, but when the
-        # learned matcher is installed those frames still align, so only real
-        # blur justifies a retake then.
-        too_few_features = not learned_available and len(frame.keypoints) < MIN_KEYPOINTS
-        if frame.blur_score < blur_floor or too_few_features:
-            retakes.add(frame.sequence)
+    """Names the frames worth re-photographing, driven by alignment outcomes.
 
+    Only overlaps that actually failed to align produce a retake.  Per-frame
+    texture statistics decide which half of a failed pair to blame, never
+    whether a retake is needed at all: a bare wall photographed perfectly is
+    still a perfectly good photograph, and asking for it again would not
+    change anything.
+    """
+    retakes: set[int] = set()
     for band_index, (band, _) in enumerate(BANDS):
         band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
         for column in weak_by_band[band]:
             candidates = (band_frames[column], band_frames[(column + 1) % CAPTURE_COLUMNS])
-            weaker = min(candidates, key=lambda frame: (len(frame.keypoints), frame.blur_score))
+            weaker = min(candidates, key=lambda frame: (frame.focus_score, len(frame.keypoints)))
             retakes.add(weaker.sequence)
     return sorted(retakes)
+
+
+def blurred_sequences(frames: list[PreparedFrame]) -> list[int]:
+    """Frames whose detail collapsed far below the rest of the capture.
+
+    Reported as advice only.  A genuinely unusable frame also fails to align,
+    and the pair logic above is what turns that into a retake request.
+    """
+    scores = np.asarray([frame.focus_score for frame in frames], dtype=np.float32)
+    floor = float(np.median(scores)) * 0.15
+    return [frame.sequence for frame in frames if frame.focus_score < floor]
 
 
 def mask_column_runs(mask: np.ndarray) -> list[tuple[int, int]]:
@@ -905,11 +938,15 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             roll = wrap_degrees(pose[2] - reference_roll)
             frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
 
-    retake_sequences = choose_retakes(
-        frames, weak_by_band, learned is not None and learned.available(),
-    )
+    retake_sequences = choose_retakes(frames, weak_by_band)
     fallback_pairs = sum(len(pairs) for pairs in weak_by_band.values())
-    if fallback_pairs > 9 or len(retake_sequences) > 6:
+    # An overlap that fell back to a measured IMU step is still placed from
+    # real data; only overlaps with neither features nor motion data are
+    # guesses, and only those justify refusing the capture.
+    blind_pairs = sum(
+        1 for report in pair_reports if report.get("fallback") and not report.get("imu")
+    )
+    if blind_pairs > 9:
         human_directions = ", ".join(str(sequence + 1) for sequence in retake_sequences[:6])
         suffix = f" Retake directions {human_directions}." if human_directions else ""
         raise CaptureQualityError(
@@ -964,6 +1001,19 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     matched_pairs = len(pair_reports) - fallback_pairs
     alignment_score = matched_pairs / len(pair_reports)
     warnings: list[str] = []
+    blurred = blurred_sequences(frames)
+    if blurred:
+        warnings.append(
+            "Photograph"
+            + ("s " if len(blurred) != 1 else " ")
+            + ", ".join(str(sequence + 1) for sequence in blurred[:6])
+            + " look softer than the rest of the capture."
+        )
+    if fallback_pairs and (learned is None or not learned.available()):
+        warnings.append(
+            "Plain surfaces limited the visual match. Run npm run setup:panorama "
+            "to install the learned matcher, which aligns bare walls."
+        )
     if fallback_pairs:
         warnings.append(
             f"{fallback_pairs} overlap{'s used' if fallback_pairs != 1 else ' used'} guided placement because visual detail was limited."
@@ -986,6 +1036,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "sourceWidth": int(np.median([frame.source.shape[1] for frame in frames])),
         "matcher": "sift+superpoint-lightglue" if learned is not None and learned.available() else "sift",
         "learnedPairs": sum(1 for report in pair_reports if report.get("learned")),
+        "blindPairs": blind_pairs,
+        "blurredFrames": blurred,
     }
 
 

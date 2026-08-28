@@ -120,6 +120,19 @@ CASES = [
         "needs_model": True,
         "slow": False,
     },
+    {
+        "label": "plain-room",
+        "title": "Plain room, uneven turns, SIFT only",
+        "why": "Regression guard for the retake loop: a bare-walled room turned unevenly, with no learned matcher available, must still return a panorama instead of demanding retakes the user cannot improve on.",
+        "args": {
+            "perturb": True, "imu": True, "bare_walls": True, "wall_strength": 0.99,
+            "uneven": 12.0, "noise": 3.0, "matcher": "sift",
+            "frame_width": 1200, "output_width": 3072,
+        },
+        "max_rmse": None,
+        "min_matched": 12,
+        "slow": False,
+    },
 ]
 
 MATCHER_MODEL = REPO / "scripts" / "models" / "superpoint_lightglue_pipeline.onnx"
@@ -141,8 +154,9 @@ def check(case: dict, result: dict, results: dict[str, dict]) -> list[str]:
         failures.append(f"rmse {result['rmse']} exceeds budget {case['max_rmse']}")
     if result["stitchSeconds"] > MAX_STITCH_SECONDS:
         failures.append(f"stitch took {result['stitchSeconds']}s, over {MAX_STITCH_SECONDS}s budget")
-    if result["matchedPairs"] != 24:
-        failures.append(f"matched only {result['matchedPairs']} of 24 overlaps")
+    min_matched = case.get("min_matched", 24)
+    if result["matchedPairs"] < min_matched:
+        failures.append(f"matched only {result['matchedPairs']} of {min_matched} required overlaps")
     if result["coverage"] is None or result["coverage"] < 0.99:
         failures.append(f"coverage {result['coverage']} below 0.99")
 

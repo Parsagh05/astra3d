@@ -189,6 +189,9 @@ def run_case(
     bracket: bool = False,
     clip_highlights: bool = False,
     bare_walls: bool = False,
+    wall_strength: float = 0.97,
+    uneven: float = 0.0,
+    noise: float = 0.0,
     matcher: str = "auto",
     frame_width: int = FRAME_WIDTH,
     output_width: int = 1536,
@@ -200,10 +203,19 @@ def run_case(
     if source is None:
         raise SystemExit(f"could not read source {source_path}")
     if bare_walls:
-        source = flatten_walls(source)
+        source = flatten_walls(source, wall_strength)
 
     frame_height = round(frame_width * 4 / 3)
     poses = ground_truth_poses(perturb, roll)
+    if uneven:
+        # Real sweeps are not metronomic: some turns overshoot the guided
+        # target and others fall short.
+        poses = {
+            sequence: (yaw + uneven * (1 if sequence % 3 == 0 else -0.7 if sequence % 3 == 1 else 0.0),
+                       pitch, frame_roll)
+            for sequence, (yaw, pitch, frame_roll) in poses.items()
+        }
+    grain = np.random.default_rng(3)
     clip = bracket or clip_highlights
 
     with tempfile.TemporaryDirectory(prefix="astra3d-harness-") as work:
@@ -211,6 +223,10 @@ def run_case(
         orientations = {}
         for sequence, (yaw, pitch, frame_roll) in poses.items():
             frame = render_frame(source, yaw, pitch, frame_roll, frame_width, frame_height)
+            if noise:
+                frame = np.clip(
+                    frame.astype(np.float32) + grain.normal(0, noise, frame.shape), 0, 255,
+                ).astype(np.uint8)
             if clip:
                 frame = np.clip(frame.astype(np.float32) * BRIGHT_GAIN, 0, 255).astype(np.uint8)
             if bracket:
@@ -324,6 +340,9 @@ def main() -> None:
     parser.add_argument("--bracket", action="store_true")
     parser.add_argument("--clip-highlights", action="store_true")
     parser.add_argument("--bare-walls", action="store_true")
+    parser.add_argument("--wall-strength", type=float, default=0.97)
+    parser.add_argument("--uneven", type=float, default=0.0)
+    parser.add_argument("--noise", type=float, default=0.0)
     parser.add_argument("--matcher", choices=["auto", "sift"], default="auto")
     parser.add_argument("--frame-width", type=int, default=FRAME_WIDTH)
     parser.add_argument("--width", type=int, default=1536)
@@ -339,6 +358,9 @@ def main() -> None:
         bracket=args.bracket,
         clip_highlights=args.clip_highlights,
         bare_walls=args.bare_walls,
+        wall_strength=args.wall_strength,
+        uneven=args.uneven,
+        noise=args.noise,
         matcher=args.matcher,
         frame_width=args.frame_width,
         output_width=args.width,
