@@ -389,6 +389,7 @@ def band_positions(
     focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
     nominal_step = width * (45.0 / horizontal_fov)
     estimates: list[tuple[float, float]] = []
+    guessed: list[int] = []
     weak_pairs: list[int] = []
     pair_reports: list[dict[str, Any]] = []
 
@@ -406,6 +407,8 @@ def band_positions(
         if estimate is None:
             estimates.append(imu_step if imu_step is not None else (nominal_step, 0.0))
             weak_pairs.append(column)
+            if imu_step is None:
+                guessed.append(column)
             pair_reports.append({
                 "from": previous.sequence,
                 "to": current.sequence,
@@ -427,8 +430,22 @@ def band_positions(
             }
         )
 
-    # The last pair closes the ring.  Distributing closure drift prevents a
-    # visible jump at 0/360 degrees while preserving the measured local steps.
+    # A sweep returns to where it started, so the eight turns must add up to
+    # a full circle.  Overlaps that could be measured keep exactly what they
+    # measured, and the ones that could not - the bare walls - divide the
+    # remainder between them.  Assuming a textbook 45 degrees for those
+    # instead would fold the wall wherever the real sweep hurried or lingered.
+    full_turn = 2.0 * math.pi * focal
+    measured_total = sum(
+        dx for column, (dx, _) in enumerate(estimates) if column not in weak_pairs
+    )
+    if guessed and 0.0 < measured_total < full_turn:
+        share = (full_turn - measured_total) / len(guessed)
+        # Only trust the remainder if it implies a believable turn per gap.
+        if width * 0.10 <= share <= width * 1.60:
+            for column in guessed:
+                estimates[column] = (share, estimates[column][1])
+
     circumference = max(width * 3.4, sum(dx for dx, _ in estimates))
     vertical_closure = sum(dy for _, dy in estimates)
     corrected_dy = [dy - vertical_closure / CAPTURE_COLUMNS for _, dy in estimates]
@@ -798,24 +815,34 @@ def smooth_ring_colors(colors: np.ndarray, kernel_width: int) -> np.ndarray:
 def fill_polar_holes(
     result: np.ndarray,
     result_mask: np.ndarray,
-    cap_latitude: float = 72.0,
+    trim_degrees: float = 8.0,
 ) -> None:
     """Fills the pole caps with a smooth gradient toward the ring of nearest
     trusted pixels.
 
     Replaces diffusion inpainting, which took minutes at 3K+ output sizes.
-    Content beyond `cap_latitude` is replaced as well: the equirectangular
-    projection stretches the frames' extreme edges into single-pixel streaks
-    there, so a smooth cap reads far better than the real slivers.
+    A thin margin just inside the coverage boundary is discarded too: the
+    equirectangular projection stretches each frame's outermost row into
+    single-pixel streaks, and a smooth cap reads better than those.  The
+    margin follows the coverage rather than a fixed latitude, so a capture
+    that genuinely saw more of the floor keeps it.
     """
     valid = result_mask != 0
     height, width = valid.shape
     rows = np.arange(height, dtype=np.float32)[:, None]
     column_index = np.arange(width)
     row_grid = np.arange(height)[:, None]
-    cap_rows = round(height * (90.0 - cap_latitude) / 180.0)
-    top_first = np.maximum(np.where(valid, row_grid, height).min(axis=0), cap_rows)
-    bottom_last = np.minimum(np.where(valid, row_grid, -1).max(axis=0), height - 1 - cap_rows)
+    trim = max(1, round(height * trim_degrees / 180.0))
+    top_first = np.clip(
+        np.where(valid, row_grid, height).min(axis=0) + trim, 0, height - 1,
+    )
+    bottom_last = np.clip(
+        np.where(valid, row_grid, -1).max(axis=0) - trim, 0, height - 1,
+    )
+    # A column with no coverage at all has nothing to fade toward.
+    empty = ~valid.any(axis=0)
+    top_first[empty] = height - 1
+    bottom_last[empty] = 0
 
     above = row_grid < top_first[None, :]
     if np.any(above):

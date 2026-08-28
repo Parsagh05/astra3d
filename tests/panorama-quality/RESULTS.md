@@ -8,17 +8,17 @@ the result against the image it was rendered from. Lower RMSE is better.
 
 | Case | RMSE | Ceiling zone | Clipped highlights | Matched | Fused | Stitch | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ideal capture | 28.37 | 23.6 | 0.0% | 24/24 | 0 | 4.0s | pass |
-| Realistic sloppy capture | 30.96 | 25.6 | 0.0% | 24/24 | 0 | 3.8s | pass |
-| Sloppy capture + motion data | 31.4 | 25.8 | 0.0% | 24/24 | 0 | 4.2s | pass |
-| Tilted phone, no motion data | 29.11 | 21.2 | 0.0% | 24/24 | 0 | 4.1s | pass |
-| Tilted phone + motion data | 26.64 | 21.0 | 0.0% | 24/24 | 0 | 4.2s | pass |
-| Blown-out windows, single exposure | 71.4 | 71.0 | 0.9% | 24/24 | 0 | 13.5s | pass |
-| Blown-out windows + exposure bracket | 43.68 | 42.6 | 0.0% | 24/24 | 24 | 18.9s | pass |
-| Full-resolution photo capture | 31.99 | 25.5 | 0.0% | 24/24 | 0 | 13.7s | pass |
-| Bare white walls, SIFT only | 14.98 | 15.9 | 0.0% | 15/24 | 0 | 3.3s | pass |
-| Bare white walls + learned matcher | 20.57 | 23.3 | 0.0% | 24/24 | 0 | 15.6s | pass |
-| Plain room, uneven turns, SIFT only | 22.08 | 18.9 | 0.0% | 16/24 | 0 | 12.4s | pass |
+| Ideal capture | 28.34 | 23.5 | 0.0% | 24/24 | 0 | 4.0s | pass |
+| Realistic sloppy capture | 30.88 | 25.2 | 0.0% | 24/24 | 0 | 3.8s | pass |
+| Sloppy capture + motion data | 31.35 | 25.6 | 0.0% | 24/24 | 0 | 4.1s | pass |
+| Tilted phone, no motion data | 29.08 | 21.1 | 0.0% | 24/24 | 0 | 3.9s | pass |
+| Tilted phone + motion data | 26.63 | 20.9 | 0.0% | 24/24 | 0 | 3.9s | pass |
+| Blown-out windows, single exposure | 71.65 | 71.9 | 0.9% | 24/24 | 0 | 13.3s | pass |
+| Blown-out windows + exposure bracket | 43.93 | 43.4 | 0.0% | 24/24 | 24 | 18.5s | pass |
+| Full-resolution photo capture | 31.94 | 25.3 | 0.0% | 24/24 | 0 | 13.4s | pass |
+| Bare white walls, SIFT only | 16.0 | 16.9 | 0.0% | 15/24 | 0 | 3.2s | pass |
+| Bare white walls + learned matcher | 20.53 | 23.3 | 0.0% | 24/24 | 0 | 15.5s | pass |
+| Plain room, uneven turns, SIFT only | 22.09 | 18.9 | 0.0% | 16/24 | 0 | 12.5s | pass |
 
 ## What each case proves
 
