@@ -23,6 +23,7 @@ type StoredProjectManifest = SharedRoomProject & {
     zoom: number;
     imu?: ServerPanoramaFrame["imu"];
     file: string;
+    bracketFile?: string;
   }>;
 };
 
@@ -107,14 +108,18 @@ async function saveProject(
   const projectId = randomUUID();
   const stagingDirectory = path.join(PROJECTS_ROOT, `.${projectId}.staging`);
   const finalDirectory = path.join(PROJECTS_ROOT, projectId);
-  const sourceFrames = frames.map((frame) => ({
-    sequence: frame.sequence,
-    band: frame.band,
-    column: frame.column,
-    zoom: frame.zoom ?? 1,
-    ...(frame.imu ? { imu: frame.imu } : {}),
-    file: `frames/${String(frame.sequence + 1).padStart(2, "0")}-${frame.band}-${frame.column + 1}.${extensionFor(frame)}`,
-  }));
+  const sourceFrames = frames.map((frame) => {
+    const baseName = `frames/${String(frame.sequence + 1).padStart(2, "0")}-${frame.band}-${frame.column + 1}`;
+    return {
+      sequence: frame.sequence,
+      band: frame.band,
+      column: frame.column,
+      zoom: frame.zoom ?? 1,
+      ...(frame.imu ? { imu: frame.imu } : {}),
+      file: `${baseName}.${extensionFor(frame)}`,
+      ...(frame.bracket ? { bracketFile: `${baseName}-dark.${extensionFor(frame)}` } : {}),
+    };
+  });
   const manifest: StoredProjectManifest = {
     version: 1,
     id: projectId,
@@ -133,11 +138,22 @@ async function saveProject(
     if (frames.length > 0) await mkdir(path.join(stagingDirectory, "frames"));
     await Promise.all([
       writeFile(path.join(stagingDirectory, PANORAMA_FILE), input.panorama, { flag: "wx" }),
-      ...frames.map((frame, index) => writeFile(
-        path.join(stagingDirectory, sourceFrames[index].file),
-        frame.image,
-        { flag: "wx" },
-      )),
+      ...frames.flatMap((frame, index) => {
+        const writes = [writeFile(
+          path.join(stagingDirectory, sourceFrames[index].file),
+          frame.image,
+          { flag: "wx" },
+        )];
+        const bracketFile = sourceFrames[index].bracketFile;
+        if (frame.bracket && bracketFile) {
+          writes.push(writeFile(
+            path.join(stagingDirectory, bracketFile),
+            frame.bracket,
+            { flag: "wx" },
+          ));
+        }
+        return writes;
+      }),
     ]);
     await writeFile(
       path.join(stagingDirectory, MANIFEST_FILE),

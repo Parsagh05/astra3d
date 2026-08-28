@@ -49,4 +49,27 @@ describe("panorama upload client", () => {
     expect(JSON.parse(upload.get("imu-0") as string)).toEqual({ alpha: 350.5, beta: 89.2, gamma: -1.4 });
     expect(upload.get("imu-1")).toBeNull();
   });
+
+  it("uploads the under-exposed bracket beside frames that captured one", () => {
+    const frames: CapturedFrame[] = [
+      {
+        id: "middle-0",
+        band: "middle",
+        column: 0,
+        sequence: 0,
+        yaw: 0,
+        capturedAt: 1,
+        dataUrl: jpegDataUrl,
+        zoom: 1,
+        bracketDataUrl: jpegDataUrl,
+      },
+      { id: "middle-1", band: "middle", column: 1, sequence: 1, yaw: 45, capturedAt: 2, dataUrl: jpegDataUrl, zoom: 1 },
+    ];
+
+    const upload = createPanoramaUpload(frames);
+    const bracket = upload.get("bracket-0");
+    expect(bracket).toBeInstanceOf(File);
+    expect((bracket as File).name).toBe("middle-0-dark.jpg");
+    expect(upload.get("bracket-1")).toBeNull();
+  });
 });

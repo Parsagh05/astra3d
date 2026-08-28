@@ -48,20 +48,23 @@ export function decodeCaptureDataUrl(dataUrl: string) {
   return new Blob([bytes], { type: match[1].toLowerCase() });
 }
 
+function imageExtension(image: Blob) {
+  return image.type === "image/png"
+    ? "png"
+    : image.type === "image/webp"
+      ? "webp"
+      : "jpg";
+}
+
 export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName = "My room") {
   const formData = new FormData();
   formData.append("room-name", roomName);
   for (const frame of [...frames].sort((a, b) => a.sequence - b.sequence)) {
     const image = decodeCaptureDataUrl(frame.dataUrl);
-    const extension = image.type === "image/png"
-      ? "png"
-      : image.type === "image/webp"
-        ? "webp"
-        : "jpg";
     formData.append(
       `frame-${frame.sequence}`,
       image,
-      `${frame.band}-${frame.column}.${extension}`,
+      `${frame.band}-${frame.column}.${imageExtension(image)}`,
     );
     formData.append(`zoom-${frame.sequence}`, String(frame.zoom));
     if (frame.imu) {
@@ -70,6 +73,14 @@ export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName 
         beta: frame.imu.beta,
         gamma: frame.imu.gamma,
       }));
+    }
+    if (frame.bracketDataUrl) {
+      const bracket = decodeCaptureDataUrl(frame.bracketDataUrl);
+      formData.append(
+        `bracket-${frame.sequence}`,
+        bracket,
+        `${frame.band}-${frame.column}-dark.${imageExtension(bracket)}`,
+      );
     }
   }
   return formData;

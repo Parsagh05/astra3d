@@ -4,6 +4,7 @@ import {
   buildCaptureLockConstraints,
   buildCaptureSlots,
   CAPTURE_COLUMNS,
+  chooseBracketExposure,
   estimateSharpness,
   getSignedAngleDelta,
   getBandRow,
@@ -119,5 +120,37 @@ describe("room capture plan", () => {
       {},
     );
     expect(exposureOnly).toEqual({ exposureMode: "manual" });
+  });
+
+  it("brackets exposure only on a manual lock with real headroom", () => {
+    // No manual lock active: never change exposure mid-sweep.
+    expect(chooseBracketExposure(
+      { exposureTime: { min: 10, max: 2000 } } as MediaTrackCapabilities,
+      { exposureMode: "continuous", exposureTime: 800 },
+    )).toBeNull();
+
+    // Locked with headroom: dark shot is a quarter of the locked exposure.
+    expect(chooseBracketExposure(
+      { exposureTime: { min: 10, max: 2000 } } as MediaTrackCapabilities,
+      { exposureMode: "manual", exposureTime: 800 },
+    )).toEqual({ current: 800, dark: 200 });
+
+    // The capability floor clips the dark exposure.
+    expect(chooseBracketExposure(
+      { exposureTime: { min: 300, max: 2000 } } as MediaTrackCapabilities,
+      { exposureMode: "manual", exposureTime: 800 },
+    )).toEqual({ current: 800, dark: 300 });
+
+    // Too little headroom means bracketing would not help.
+    expect(chooseBracketExposure(
+      { exposureTime: { min: 700, max: 2000 } } as MediaTrackCapabilities,
+      { exposureMode: "manual", exposureTime: 800 },
+    )).toBeNull();
+
+    // An unknown exposure time cannot be restored safely.
+    expect(chooseBracketExposure(
+      { exposureTime: { min: 10, max: 2000 } } as MediaTrackCapabilities,
+      { exposureMode: "manual" },
+    )).toBeNull();
   });
 });

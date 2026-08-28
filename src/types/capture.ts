@@ -22,6 +22,8 @@ export type CapturedFrame = CaptureSlot & {
   zoom: number;
   /** Motion-sensor pose recorded with the still, when sensors were live. */
   imu?: CaptureOrientation;
+  /** Under-exposed companion still for laptop highlight fusion. */
+  bracketDataUrl?: string;
 };
 
 export type PanoramaQualityReport = {

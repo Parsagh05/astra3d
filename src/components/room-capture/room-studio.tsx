@@ -25,7 +25,8 @@ import {
   buildCaptureSlots,
   CAPTURE_BANDS,
   CAPTURE_COLUMNS,
-  captureLiveStill,
+  captureBestStill,
+  captureExposureBracket,
   getCaptureProgress,
   getPitchDirection,
   getRelativeCameraPitch,
@@ -115,6 +116,7 @@ export function RoomStudio() {
     gammaSample: null as number | null,
   });
   const captureLockRef = useRef<MediaStreamTrack | null>(null);
+  const captureInFlightRef = useRef(false);
   const [stage, setStage] = useState<StudioStage>("intro");
   const [cameraMode, setCameraMode] = useState<CameraMode>("idle");
   const [roomName, setRoomName] = useState("My room");
@@ -389,7 +391,7 @@ export function RoomStudio() {
     window.requestAnimationFrame(() => void startCamera());
   };
 
-  const addFrame = useCallback((capture: LiveStillCapture) => {
+  const addFrame = useCallback((capture: LiveStillCapture, bracketDataUrl?: string | null) => {
     const replacementSequence = retakeSequenceRef.current;
     retakeSequenceRef.current = null;
     setRetakeSequence(null);
@@ -417,6 +419,7 @@ export function RoomStudio() {
         capturedAt: Date.now(),
         zoom: captureZoom,
         ...(imu ? { imu } : {}),
+        ...(bracketDataUrl ? { bracketDataUrl } : {}),
       };
       const next = replacementSequence === null
         ? [...current, capturedFrame]
@@ -431,15 +434,18 @@ export function RoomStudio() {
     setAutoScanStatus(status);
   }, []);
 
-  const captureAutomaticFrame = useCallback(() => {
+  const captureAutomaticFrame = useCallback(async () => {
     if (!videoRef.current || autoStatusRef.current !== "scanning") return;
+    if (captureInFlightRef.current) return;
+    captureInFlightRef.current = true;
 
     try {
       const isRetaking = retakeSequenceRef.current !== null;
-      const capture = captureLiveStill(
-        videoRef.current,
-        zoomRange.hardware ? 1 : captureZoom,
-      );
+      const video = videoRef.current;
+      const track = streamRef.current?.getVideoTracks?.()[0];
+      const softwareZoom = zoomRange.hardware ? 1 : captureZoom;
+      const capture = await captureBestStill(video, track, softwareZoom);
+      if (autoStatusRef.current !== "scanning") return;
       if (
         captureModeRef.current === "automatic" &&
         capture.sharpness > MIN_MEASURABLE_SHARPNESS &&
@@ -452,7 +458,13 @@ export function RoomStudio() {
         setError("That view looked motion-blurred, so it was not saved. Hold steady and it will retake automatically.");
         return;
       }
-      addFrame(capture);
+      // A short under-exposed companion still lets the laptop recover bright
+      // windows during blending. Skipped silently when unsupported.
+      const bracketDataUrl = track
+        ? await captureExposureBracket(video, track, softwareZoom)
+        : null;
+      if (autoStatusRef.current !== "scanning") return;
+      addFrame(capture, bracketDataUrl);
       if (isRetaking) {
         setAutomaticStatus(captureComplete ? "complete" : "scanning");
         return;
@@ -478,6 +490,8 @@ export function RoomStudio() {
       clearAutoTimers();
       setAutomaticStatus("idle");
       setError(captureError instanceof Error ? captureError.message : "Automatic capture stopped unexpectedly.");
+    } finally {
+      captureInFlightRef.current = false;
     }
   }, [addFrame, captureComplete, captureZoom, clearAutoTimers, setAutomaticStatus, zoomRange.hardware]);
 
@@ -562,7 +576,7 @@ export function RoomStudio() {
       setGuidance({ aligned, holdProgress, pitchError, yawError });
 
       if (holdProgress >= 1) {
-        captureAutomaticFrame();
+        void captureAutomaticFrame();
       }
     };
 
@@ -1044,7 +1058,7 @@ export function RoomStudio() {
                         type="button"
                         onClick={() => {
                           if (autoScanStatus === "scanning" && captureMode === "manual") {
-                            captureAutomaticFrame();
+                            void captureAutomaticFrame();
                           } else {
                             void startAutomaticSweep();
                           }

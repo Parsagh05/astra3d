@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import sharp from "sharp";
@@ -15,6 +15,12 @@ try {
   imuFrames = Object.keys(JSON.parse(await readFile(join(input, "imu.json"), "utf8"))).length;
 } catch {
   imuFrames = 0;
+}
+let fusedFrames = 0;
+try {
+  fusedFrames = (await readdir(input)).filter((name) => name.endsWith(".bracket")).length;
+} catch {
+  fusedFrames = 0;
 }
 const rowHeight = Math.floor(height / 3);
 
@@ -43,4 +49,5 @@ await writeFile(report, JSON.stringify({
   retakeSequences: [],
   warnings: ["Three overlaps used guided placement."],
   imuFrames,
+  fusedFrames,
 }));

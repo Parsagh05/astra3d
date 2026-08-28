@@ -29,6 +29,7 @@ next-env.d.ts
 # temporary generated files
 /tmp/
 /.astra3d-data/
+/tests/panorama-quality/output/
 __pycache__/
 *.py[cod]
 

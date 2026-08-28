@@ -18,6 +18,7 @@ import argparse
 import json
 import math
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,12 +27,30 @@ import cv2
 import numpy as np
 
 
+class StageTimer:
+    """Coarse stage timings printed to stderr for laptop diagnostics."""
+
+    def __init__(self) -> None:
+        self.started = time.perf_counter()
+        self.last = self.started
+
+    def mark(self, stage: str) -> None:
+        now = time.perf_counter()
+        print(f"astra3d-stitch {stage}: {now - self.last:.1f}s", file=sys.stderr)
+        self.last = now
+
+
 CAPTURE_COLUMNS = 8
 BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
 MIN_KEYPOINTS = 24
 MIN_PAIR_INLIERS = 9
 MAX_BAND_YAW_OFFSET = 25.0
 MAX_FRAME_ROLL = 15.0
+# Full-resolution photo stills are projected at up to this width; the
+# lightweight registration copies stay much smaller.
+MAX_SOURCE_WIDTH = 2048
+# Native blend canvas cap; wider requests are Lanczos-upscaled afterwards.
+MAX_BLEND_WIDTH = 3072
 
 
 def wrap_degrees(angle: float) -> float:
@@ -107,6 +126,7 @@ class PreparedFrame:
     keypoints: list[Any]
     descriptors: np.ndarray | None
     blur_score: float
+    fused: bool = False
 
 
 class CaptureQualityError(RuntimeError):
@@ -164,13 +184,39 @@ def cylindrical_warp(image: np.ndarray, horizontal_fov: float) -> tuple[np.ndarr
     return warped, mask
 
 
+def load_fused_frame(input_dir: Path, sequence: int) -> tuple[np.ndarray, bool]:
+    """Loads a still and, when a short-exposure companion exists, Mertens-fuses
+    the pair after MTB alignment to recover blown-out window highlights."""
+    image = load_frame(input_dir / f"{sequence:03d}.frame")
+    bracket_path = input_dir / f"{sequence:03d}.bracket"
+    if not bracket_path.exists():
+        return image, False
+    try:
+        dark = load_frame(bracket_path)
+    except CaptureQualityError:
+        return image, False
+    if dark.shape != image.shape:
+        return image, False
+    try:
+        stack = [image, dark]
+        cv2.createAlignMTB().process(stack, stack)
+        fused = cv2.createMergeMertens().process(stack)
+        return np.clip(fused * 255.0, 0, 255).astype(np.uint8), True
+    except cv2.error:
+        return image, False
+
+
 def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: float) -> list[PreparedFrame]:
     detector = cv2.SIFT_create(nfeatures=1400, contrastThreshold=0.025, edgeThreshold=14)
     frames: list[PreparedFrame] = []
     for band_index, (band, _) in enumerate(BANDS):
         for column in range(CAPTURE_COLUMNS):
             sequence = band_index * CAPTURE_COLUMNS + column
-            image = resize_for_registration(load_frame(input_dir / f"{sequence:03d}.frame"), registration_width)
+            loaded, fused = load_fused_frame(input_dir, sequence)
+            # The projection keeps as much of the photo's resolution as
+            # practical; feature registration runs on a small copy.
+            source = resize_for_registration(loaded, MAX_SOURCE_WIDTH)
+            image = resize_for_registration(source, registration_width)
             warped, mask = cylindrical_warp(image, horizontal_fov)
             gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
             blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
@@ -184,13 +230,14 @@ def prepare_frames(input_dir: Path, registration_width: int, horizontal_fov: flo
                     sequence=sequence,
                     band=band,
                     column=column,
-                    source=image,
+                    source=source,
                     image=warped,
                     mask=mask,
                     gray=gray,
                     keypoints=keypoints,
                     descriptors=descriptors,
                     blur_score=blur_score,
+                    fused=fused,
                 )
             )
     return frames
@@ -568,15 +615,39 @@ def build_layers(
     return images, masks, corners
 
 
-def compensate_exposure(images: list[np.ndarray], masks: list[np.ndarray], corners: list[tuple[int, int]]) -> None:
+def compensate_exposure(
+    images: list[np.ndarray],
+    masks: list[np.ndarray],
+    corners: list[tuple[int, int]],
+    feed_scale: float = 0.35,
+) -> None:
+    """Balances exposure across layers.
+
+    The block-gain estimation scales quadratically with overlap area, so the
+    compensator is fed quarter-scale copies (as OpenCV's own stitching sample
+    does) and its interpolated gain maps are applied at full resolution.
+    """
     compensator = cv2.detail.ExposureCompensator_createDefault(cv2.detail.ExposureCompensator_GAIN_BLOCKS)
-    compensator.feed(corners=corners, images=images, masks=masks)
+    small_images: list[np.ndarray] = []
+    small_masks: list[np.ndarray] = []
+    small_corners: list[tuple[int, int]] = []
+    for image, mask, (left, top) in zip(images, masks, corners):
+        width = max(2, round(image.shape[1] * feed_scale))
+        height = max(2, round(image.shape[0] * feed_scale))
+        small_images.append(cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA))
+        small_masks.append(cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST))
+        small_corners.append((round(left * feed_scale), round(top * feed_scale)))
+    compensator.feed(corners=small_corners, images=small_images, masks=small_masks)
     for index in range(len(images)):
         compensator.apply(index, corners[index], images[index], masks[index])
 
 
-def find_seams(images: list[np.ndarray], masks: list[np.ndarray], corners: list[tuple[int, int]]) -> None:
-    seam_scale = 0.28
+def find_seams(
+    images: list[np.ndarray],
+    masks: list[np.ndarray],
+    corners: list[tuple[int, int]],
+    seam_scale: float = 0.28,
+) -> None:
     seam_images: list[np.ndarray] = []
     seam_masks: list[np.ndarray] = []
     seam_corners: list[tuple[int, int]] = []
@@ -602,22 +673,73 @@ def multiband_blend(
     corners: list[tuple[int, int]],
     output_width: int,
     output_height: int,
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     blender = cv2.detail_MultiBandBlender()
     blender.setNumBands(max(3, min(7, int(math.log2(output_width)) - 6)))
     blender.prepare((0, 0, output_width, output_height))
     for image, mask, corner in zip(images, masks, corners):
         blender.feed(image.astype(np.int16), mask, corner)
     result, result_mask = blender.blend(None, None)
-    result = np.clip(result, 0, 255).astype(np.uint8)
+    return np.clip(result, 0, 255).astype(np.uint8), result_mask
 
-    holes = result_mask == 0
-    if np.any(holes):
-        # Only fill uncovered pole slivers. Large central holes indicate an
-        # invalid capture and are caught before this stage by coverage checks.
-        nearest = cv2.inpaint(result, holes.astype(np.uint8) * 255, 5, cv2.INPAINT_TELEA)
-        result[holes] = nearest[holes]
-    return result
+
+def smooth_ring_colors(colors: np.ndarray, kernel_width: int) -> np.ndarray:
+    """Circularly smooths one row of colors across the panorama's longitude."""
+    kernel_width = max(3, kernel_width | 1)
+    pad = kernel_width
+    wrapped = np.concatenate([colors[-pad:], colors, colors[:pad]], axis=0)
+    blurred = cv2.blur(wrapped[None, :, :], (kernel_width, 1))[0]
+    return blurred[pad:-pad]
+
+
+def fill_polar_holes(
+    result: np.ndarray,
+    result_mask: np.ndarray,
+    cap_latitude: float = 72.0,
+) -> None:
+    """Fills the pole caps with a smooth gradient toward the ring of nearest
+    trusted pixels.
+
+    Replaces diffusion inpainting, which took minutes at 3K+ output sizes.
+    Content beyond `cap_latitude` is replaced as well: the equirectangular
+    projection stretches the frames' extreme edges into single-pixel streaks
+    there, so a smooth cap reads far better than the real slivers.
+    """
+    valid = result_mask != 0
+    height, width = valid.shape
+    rows = np.arange(height, dtype=np.float32)[:, None]
+    column_index = np.arange(width)
+    row_grid = np.arange(height)[:, None]
+    cap_rows = round(height * (90.0 - cap_latitude) / 180.0)
+    top_first = np.maximum(np.where(valid, row_grid, height).min(axis=0), cap_rows)
+    bottom_last = np.minimum(np.where(valid, row_grid, -1).max(axis=0), height - 1 - cap_rows)
+
+    above = row_grid < top_first[None, :]
+    if np.any(above):
+        boundary = result[np.clip(top_first, 0, height - 1), column_index].astype(np.float32)
+        boundary = smooth_ring_colors(boundary, width // 48)
+        pole = smooth_ring_colors(boundary, width // 8)
+        # 0 at the pole row, 1 at the covered boundary.
+        weight = (rows / np.maximum(top_first[None, :], 1).astype(np.float32)).clip(0, 1)[..., None]
+        fill = pole[None, :, :] * (1 - weight) + boundary[None, :, :] * weight
+        result[above] = np.clip(fill, 0, 255).astype(np.uint8)[above]
+
+    below = row_grid > bottom_last[None, :]
+    if np.any(below):
+        boundary = result[np.clip(bottom_last, 0, height - 1), column_index].astype(np.float32)
+        boundary = smooth_ring_colors(boundary, width // 48)
+        pole = smooth_ring_colors(boundary, width // 8)
+        depth = np.maximum(height - 1 - bottom_last[None, :], 1).astype(np.float32)
+        weight = ((height - 1 - rows) / depth).clip(0, 1)[..., None]
+        fill = pole[None, :, :] * (1 - weight) + boundary[None, :, :] * weight
+        result[below] = np.clip(fill, 0, 255).astype(np.uint8)[below]
+
+    # Any interior pinholes left between covered rows are small; diffusion
+    # inpainting stays affordable at that size.
+    remaining = (~valid) & ~above & ~below
+    if np.any(remaining):
+        patched = cv2.inpaint(result, remaining.astype(np.uint8) * 255, 5, cv2.INPAINT_TELEA)
+        result[remaining] = patched[remaining]
 
 
 def process(args: argparse.Namespace) -> dict[str, Any]:
@@ -629,9 +751,11 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         2.0 * math.atan(math.tan(math.radians(args.horizontal_fov * 0.5)) / args.zoom)
     )
     effective_fov = max(48.0, min(112.0, effective_fov))
+    timer = StageTimer()
     input_dir = Path(args.input)
     imu_poses = load_imu_poses(input_dir)
     frames = prepare_frames(input_dir, registration_width, effective_fov)
+    timer.mark("prepare")
     positions: dict[str, tuple[list[float], list[float], float]] = {}
     weak_by_band: dict[str, list[int]] = {}
     pair_reports: list[dict[str, Any]] = []
@@ -709,12 +833,14 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             retake_sequences,
         )
 
-    # Seam finding and pyramid blending scale superlinearly.  A 1920-wide
-    # working panorama retains more than enough seam detail for phone viewing,
-    # then a single high-quality resize produces the requested 3072 export
-    # without exhausting a normal laptop's memory.
-    blend_width = min(args.width, 1920)
+    # Seam finding and pyramid blending scale superlinearly, so the working
+    # panorama is capped; larger exports get one high-quality resize at the
+    # end.  The graph-cut seam resolution stays roughly constant regardless of
+    # the blend width.
+    blend_width = min(args.width, MAX_BLEND_WIDTH)
     blend_height = blend_width // 2
+    seam_scale = 0.28 * min(1.0, 1920.0 / blend_width)
+    timer.mark("align")
     images, masks, corners = build_layers(
         frames,
         positions,
@@ -724,6 +850,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         blend_height,
         effective_fov,
     )
+    timer.mark("project")
     coverage = np.zeros((blend_height, blend_width), dtype=np.uint8)
     for mask, (left, top) in zip(masks, corners):
         target = coverage[top : top + mask.shape[0], left : left + mask.shape[1]]
@@ -737,12 +864,18 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         )
 
     compensate_exposure(images, masks, corners)
-    find_seams(images, masks, corners)
-    panorama = multiband_blend(images, masks, corners, blend_width, blend_height)
+    timer.mark("exposure")
+    find_seams(images, masks, corners, seam_scale)
+    timer.mark("seams")
+    panorama, panorama_mask = multiband_blend(images, masks, corners, blend_width, blend_height)
+    timer.mark("blend")
+    fill_polar_holes(panorama, panorama_mask)
+    timer.mark("fill")
     if blend_width != args.width:
         panorama = cv2.resize(panorama, (args.width, args.height), interpolation=cv2.INTER_LANCZOS4)
     if not cv2.imwrite(str(args.output), panorama, [cv2.IMWRITE_JPEG_QUALITY, args.quality]):
         raise RuntimeError("OpenCV could not encode the panorama.")
+    timer.mark("encode")
 
     matched_pairs = len(pair_reports) - fallback_pairs
     alignment_score = matched_pairs / len(pair_reports)
@@ -765,6 +898,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "blurScores": [round(frame.blur_score, 1) for frame in frames],
         "imuFrames": len(imu_poses),
         "crossBand": cross_band_report,
+        "fusedFrames": sum(1 for frame in frames if frame.fused),
+        "sourceWidth": int(np.median([frame.source.shape[1] for frame in frames])),
     }
 
 

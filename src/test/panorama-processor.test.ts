@@ -17,32 +17,38 @@ async function createFrames() {
   };
 
   return Promise.all(
-    buildCaptureSlots().map(async (slot): Promise<ServerPanoramaFrame> => ({
-      ...slot,
-      ...(slot.sequence < 2
-        ? { imu: { alpha: 360 - slot.column * 45, beta: 90, gamma: 0 } }
-        : {}),
-      image: await sharp({
+    buildCaptureSlots().map(async (slot): Promise<ServerPanoramaFrame> => {
+      const image = await sharp({
         create: {
           width: 90,
           height: 120,
           channels: 3,
           background: colors[slot.band],
         },
-      }).jpeg().toBuffer(),
-    })),
+      }).jpeg().toBuffer();
+      return {
+        ...slot,
+        ...(slot.sequence < 2
+          ? { imu: { alpha: 360 - slot.column * 45, beta: 90, gamma: 0 } }
+          : {}),
+        ...(slot.sequence === 0 ? { bracket: image } : {}),
+        image,
+      };
+    }),
   );
 }
 
 describe("laptop panorama processor", () => {
   it("creates a mobile-safe 2:1 JPEG with correctly ordered room bands", async () => {
-    const { panorama: output, report } = await processRoomPanorama(await createFrames(), {
+    const { panorama: output, report, width, height } = await processRoomPanorama(await createFrames(), {
       width: 640,
       height: 320,
       quality: 90,
       pythonCommand: process.execPath,
       scriptPath: path.join(process.cwd(), "src", "test", "fixtures", "panorama-worker.mjs"),
     });
+    expect(width).toBe(640);
+    expect(height).toBe(320);
     const metadata = await sharp(output).metadata();
     const { data, info } = await sharp(output).raw().toBuffer({ resolveWithObject: true });
 
@@ -53,8 +59,10 @@ describe("laptop panorama processor", () => {
       matchedPairs: 21,
       fallbackPairs: 3,
       coverage: 0.98,
-      // The worker fixture echoes how many imu.json entries reached it.
+      // The worker fixture echoes how many imu.json entries and .bracket
+      // companion files reached it.
       imuFrames: 2,
+      fusedFrames: 1,
     });
 
     const pixel = (x: number, y: number) => {

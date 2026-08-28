@@ -99,6 +99,30 @@ async function processCaptureRequest(request: Request) {
       return errorResponse("The capture package is too large.", 413, "CAPTURE_TOO_LARGE");
     }
 
+    const bracketValue = formData.get(`bracket-${slot.sequence}`);
+    let bracket: Buffer | undefined;
+    if (bracketValue instanceof File) {
+      if (!acceptedImageTypes.has(bracketValue.type) || bracketValue.size === 0) {
+        return errorResponse(
+          `The exposure bracket for frame ${slot.sequence + 1} is not a supported image.`,
+          415,
+          "INVALID_FRAME_TYPE",
+        );
+      }
+      if (bracketValue.size > MAX_FRAME_BYTES) {
+        return errorResponse(
+          `The exposure bracket for frame ${slot.sequence + 1} is too large.`,
+          413,
+          "FRAME_TOO_LARGE",
+        );
+      }
+      totalBytes += bracketValue.size;
+      if (totalBytes > MAX_CAPTURE_BYTES) {
+        return errorResponse("The capture package is too large.", 413, "CAPTURE_TOO_LARGE");
+      }
+      bracket = Buffer.from(await bracketValue.arrayBuffer());
+    }
+
     frames.push({
       sequence: slot.sequence,
       band: slot.band,
@@ -106,12 +130,13 @@ async function processCaptureRequest(request: Request) {
       image: Buffer.from(await value.arrayBuffer()),
       zoom: parseZoom(formData.get(`zoom-${slot.sequence}`)),
       imu: parseOrientation(formData.get(`imu-${slot.sequence}`)),
+      bracket,
       mimeType: value.type as ServerPanoramaFrame["mimeType"],
     });
   }
 
   try {
-    const { panorama, report } = await processRoomPanorama(frames);
+    const { panorama, report, width, height } = await processRoomPanorama(frames);
     let project;
     try {
       project = await saveCapturedProject({
@@ -135,7 +160,7 @@ async function processCaptureRequest(request: Request) {
         "Content-Disposition": 'inline; filename="astra3d-room-360.jpg"',
         "Content-Type": "image/jpeg",
         "X-Content-Type-Options": "nosniff",
-        "X-Astra3D-Height": String(PANORAMA_HEIGHT),
+        "X-Astra3D-Height": String(height),
         "X-Astra3D-Alignment": String(report.alignmentScore),
         "X-Astra3D-Coverage": String(report.coverage),
         "X-Astra3D-Fallback-Pairs": String(report.fallbackPairs),
@@ -145,7 +170,7 @@ async function processCaptureRequest(request: Request) {
         "X-Astra3D-Project-Id": project.id,
         "X-Astra3D-Retakes": report.retakeSequences.join(","),
         "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(report.warnings)),
-        "X-Astra3D-Width": String(PANORAMA_WIDTH),
+        "X-Astra3D-Width": String(width),
       },
     });
   } catch (error) {

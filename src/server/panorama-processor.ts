@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import sharp from "sharp";
+
 import {
   CAPTURE_BANDS,
   CAPTURE_COLUMNS,
@@ -12,8 +14,12 @@ import type { CaptureBandId, CaptureOrientation, PanoramaQualityReport } from "@
 
 export const PANORAMA_WIDTH = 3072;
 export const PANORAMA_HEIGHT = 1536;
+/** Output size used when the phone delivered full-resolution photo stills. */
+export const HIGH_RES_PANORAMA_WIDTH = 4096;
+/** Portrait still width that indicates real photo captures rather than preview grabs. */
+const HIGH_RES_FRAME_WIDTH = 1440;
 export const MAX_FRAME_BYTES = 5 * 1024 * 1024;
-export const MAX_CAPTURE_BYTES = 80 * 1024 * 1024;
+export const MAX_CAPTURE_BYTES = 160 * 1024 * 1024;
 
 export type ServerPanoramaFrame = {
   sequence: number;
@@ -22,6 +28,8 @@ export type ServerPanoramaFrame = {
   image: Buffer;
   zoom?: number;
   imu?: CaptureOrientation;
+  /** Under-exposed companion still for highlight fusion. */
+  bracket?: Buffer;
   mimeType?: "image/jpeg" | "image/png" | "image/webp";
 };
 
@@ -44,6 +52,8 @@ type WorkerReport = PanoramaQualityReport & {
 export type ServerPanoramaResult = {
   panorama: Buffer;
   report: PanoramaQualityReport;
+  width: number;
+  height: number;
 };
 
 export class PanoramaProcessingError extends Error {
@@ -146,14 +156,27 @@ async function removePrivateJobDirectory(jobDirectory: string) {
   await rm(resolvedJob, { recursive: true, force: true });
 }
 
+/** Full-resolution photo captures earn the larger equirect output. */
+async function chooseOutputWidth(frames: readonly ServerPanoramaFrame[]) {
+  try {
+    const probe = frames.find((frame) => frame.sequence === 0) ?? frames[0];
+    const metadata = await sharp(probe.image).metadata();
+    return (metadata.width ?? 0) >= HIGH_RES_FRAME_WIDTH
+      ? HIGH_RES_PANORAMA_WIDTH
+      : PANORAMA_WIDTH;
+  } catch {
+    return PANORAMA_WIDTH;
+  }
+}
+
 export async function processRoomPanorama(
   frames: readonly ServerPanoramaFrame[],
   options: PanoramaOptions = {},
 ): Promise<ServerPanoramaResult> {
   assertCapturePlan(frames);
 
-  const width = options.width ?? PANORAMA_WIDTH;
-  const height = options.height ?? PANORAMA_HEIGHT;
+  const width = options.width ?? await chooseOutputWidth(frames);
+  const height = options.height ?? width / 2;
   const quality = options.quality ?? 90;
   if (width < 640 || height < 320 || width !== height * 2) {
     throw new Error("The panorama output must use a supported 2:1 size.");
@@ -172,11 +195,22 @@ export async function processRoomPanorama(
     await Promise.all(
       [...frames]
         .sort((left, right) => left.sequence - right.sequence)
-        .map((frame) => writeFile(
-          path.join(jobDirectory, `${String(frame.sequence).padStart(3, "0")}.frame`),
-          frame.image,
-          { flag: "wx" },
-        )),
+        .flatMap((frame) => {
+          const baseName = String(frame.sequence).padStart(3, "0");
+          const writes = [writeFile(
+            path.join(jobDirectory, `${baseName}.frame`),
+            frame.image,
+            { flag: "wx" },
+          )];
+          if (frame.bracket) {
+            writes.push(writeFile(
+              path.join(jobDirectory, `${baseName}.bracket`),
+              frame.bracket,
+              { flag: "wx" },
+            ));
+          }
+          return writes;
+        }),
     );
     const orientationEntries = Object.fromEntries(
       frames
@@ -232,7 +266,7 @@ export async function processRoomPanorama(
     if (panorama.length === 0) {
       throw new PanoramaProcessingError("OpenCV returned an empty panorama.");
     }
-    return { panorama, report };
+    return { panorama, report, width, height };
   } catch (error) {
     if (error instanceof PanoramaProcessingError) throw error;
     throw new PanoramaProcessingError("The feature-alignment job could not be completed.");
