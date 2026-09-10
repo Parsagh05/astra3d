@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Next.js build output
+.next
+out
+build
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.Python
+*.egg-info
+.eggs
+dist
+build
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+.playwright-report
+test-results
+
+# Project data (should be volume-mounted)
+.astra3d-data
+
+# Git
+.git
+.gitignore
+
+# Docs
+README.md
+*.md
+
+# ML models (should be downloaded at runtime)
+scripts/models
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

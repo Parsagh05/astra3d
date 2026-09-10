@@ -1,187 +1,126 @@
 # Astra3D — Interactive Spatial Commerce
 
-Astra3D is an original spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/OpenCV backend, and saves a shared laptop project that both phone and desktop can open. A functional three-room retail flagship demonstrates the later multi-room visitor experience.
+Astra3D is a spatial-capture and commerce application. Its creation studio guides a smartphone user through photographing one room, sends the completed stills through a private local connection to the laptop, builds an optimized 2:1 panorama with a Node/OpenCV backend, and saves a shared project that both phone and desktop can open. A functional three-room retail flagship demonstrates the multi-room visitor experience.
 
-The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store. No media, source code, product screenshots, demo identifiers, or marketing statistics from the reference sites are included.
-
-## Highlights
-
-- A phone-first `/studio/` workflow for naming and scanning one room from a fixed standing point. Quick mode needs one turn and 12 photos per room.
-- A persistent rear-camera preview on a secure origin, with IMU-guided still capture at twelve overlapping targets per sweep. The app never records a video.
-- Quick scan is the default: 12 photos in one eye-level turn. It shows the room around you; unphotographed ceiling and floor regions use a disclosed soft fill. Full scan remains available with 36 photos across eye-level, +50°, and −50° sweeps, which photograph the ceiling and floor rather than leaving them to that fill.
-- Switchable Automatic and Manual capture, preview-matched zoom, detected ultrawide/rear-lens selection, last-angle retake, and a thumbnail map for replacing any completed angle without losing progress. Real hardware zoom reaches 0.6× when the browser exposes it; the software fallback remains 1.0×–1.4×.
-- Stable automatic capture uses the rear-camera direction, smooths sensor noise, and tolerates small hand tremors. Only the guidance overlay updates during motion, capped at 30 paints per second; the studio and thumbnail map do not rerender for each sensor sample.
-- One still per target from the live preview, asynchronously JPEG-encoded at up to 1080 by 1440 pixels. Small 160 by 214 thumbnails and direct Blob uploads bound phone memory. The normal studio takes no second exposure or silent blur retries; the laptop checks overlap and image quality.
-- Laptop-side panorama assembly at 3072 by 1536, with validated quick/full capture plans, SIFT alignment, motion-data priors, lens calibration, spherical projection, exposure compensation, seam selection, blending, and targeted retakes. Full scans also register the tilted sweeps. Source photos, orientation samples, reports, and panoramas are retained under `.astra3d-data/projects/`.
-- Automatic lens measurement: a sweep returns to where it started, so the eye-level turns must add up to one full circle, and that constraint recovers the camera's horizontal field of view from the photographs themselves. Phones rarely report a usable focal length, and a 3:4 crop, a 16:9 crop and an ultrawide differ by tens of degrees, so the projection follows the lens that took the photographs instead of a fixed assumption.
-- An optional SuperPoint+LightGlue rescue matcher for bare painted walls: when SIFT cannot align a low-texture overlap, the learned matcher locks onto faint paint gradients and soft shadows so empty rooms stitch instead of being rejected. `npm run setup:panorama` downloads the checksum-pinned ONNX model; without it the stitcher behaves exactly as before.
-- An interactive generated-room viewer with drag, swipe, pinch-to-zoom, keyboard, zoom, reset, fullscreen, and WebGL fallback behavior, plus a gyroscope mode that aims the view by moving the phone and an auto-rotate toggle that stays hidden under reduced motion.
-- Shareable room links: every laptop-shared project can be copied or shared as `/studio/?project=<id>`, and opening that link on any device on the same private connection loads the saved 360° room directly.
-- The decorative hero uses a static environment on touch devices. Desktop enhancement uses a capped React Three Fiber scene with offscreen pausing. Interactive room tours remain available on phones.
-- Automatic static fallback for reduced motion, reduced data, unavailable WebGL, or a lost WebGL context.
-- A functional three-room flagship tour with linked 360° panoramas for Arrival, Collection, and Private Lounge.
-- Drag, swipe, arrow-key, zoom, reset, and fullscreen controls, with projected hotspots that stay attached to points in each scene.
-- Navigation, product, and editorial hotspots; a clickable floor plan; scene lists; and shareable scene/hotspot URLs.
-- Code-built product previews with rotation, zoom, and finish selection. Prices, availability, and the local demo bag are illustrative and never create an order or payment.
-- Four original optimized environment renders for retail, real estate, hospitality, and art.
-- Keyboard-operable industry tabs and spatial hotspots with live detail updates.
-- Import → Customize → Launch workflow, illustrative Control Center, and capability bento grid.
-- Responsive floating navigation and an accessible modal with validation, focus trapping, Escape dismissal, focus restoration, and local-only success state.
-- Static metadata, canonical URL, Open Graph image, robots, sitemap, and `SoftwareApplication` structured data.
-- Vitest component tests plus Playwright browser coverage, including accessibility, responsive layouts, reduced-motion, and WebGL-failure behavior.
+The visual identity, environments, products, and copy were created for this project. The flagship is a fictional demonstration rather than a scan of a real store.
 
 ## Technology
 
 - Next.js 16 App Router and React 19
-- Node.js Route Handlers with a private Python/OpenCV panorama worker
+- Node.js with Python/OpenCV panorama worker (containerized)
 - TypeScript in strict mode
 - React Three Fiber, Drei, and Three.js
-- CSS Modules plus global design tokens
-- Locally bundled Inter and Space Grotesk variable fonts
-- Vitest and Testing Library
-- Playwright and axe-core
+- Docker with multi-stage builds
+- Vitest and Playwright
 
-## Local development
-
-Node.js 22, npm 10, and Python 3.11+ are recommended. The application has no required environment variables or external cloud services. It must run as a Node.js application because `/api/panorama` performs the image work on the laptop.
+## Quick Start (Docker)
 
 ```bash
-npm ci
-npm run setup:panorama
-npm run dev
+# Development
+docker-compose up -d
+
+# Production
+docker-compose -f docker-compose.prod.yml up -d
 ```
 
-Open `http://localhost:3000`.
+Open `http://localhost:3000`. The room creator is at `http://localhost:3000/studio/` (requires secure origin for camera access).
 
-The room creator is available at `http://localhost:3000/studio/`. Its persistent camera preview and motion-sensor guidance require a secure browser context (`https://` or `localhost`). The user follows one on-screen target at a time; when the target is centered and the phone is steady, the app copies one still image from the live camera stream. It does not start or save a video recording. If motion data is unavailable, the same live preview remains open and the user taps one in-app capture button per target.
-
-### Test from an Android phone with the full live scanner
-
-The most reliable local setup is Android Debug Bridge (ADB), including Android's Wireless debugging mode. It maps the phone's `localhost` to the laptop, so the browser allows the live camera without a certificate and the same connection reaches the laptop processor:
-
-```powershell
-npm.cmd run dev -- --hostname 127.0.0.1 --port 3000
-```
-
-In a second PowerShell window, after enabling Android Developer options and Wireless debugging, connect using the current phone address shown by Android:
-
-```powershell
-cd C:\platform-tools
-.\adb.exe connect PHONE_IP:CONNECT_PORT
-.\adb.exe devices
-.\adb.exe -s PHONE_IP:CONNECT_PORT reverse tcp:3000 tcp:3000
-```
-
-If Android asks for pairing first, choose **Pair device with pairing code** and run `.\adb.exe pair PHONE_IP:PAIR_PORT` before `connect`. On the phone, open `http://localhost:3000/studio/` in Chrome and allow camera and motion access. No cable is required after Wireless debugging is connected. A trusted HTTPS URL also works. An ordinary URL such as `http://192.168.x.x:3000` can display the website, but mobile browsers intentionally block this live scanner on insecure LAN HTTP.
-
-### Shared phone and laptop projects
-
-The Node server is the common project store. Completed scans are atomically saved under `.astra3d-data/projects/<project-id>/` with the panorama, JSON manifest, quality report, and 12 quick-scan or 36 full-scan source photographs. Phone and laptop load the same server list. IndexedDB caches the latest opened panorama for convenience.
-
-On first launch after this upgrade, a final panorama already cached on the phone is migrated to the laptop library. Its original 24 captures cannot be recreated, so the library labels it **Panorama only · migrated**. This local release has no authentication: only expose the Node server to devices you trust, and back up `.astra3d-data/` if the projects matter.
-
-## Commands
+## Makefile Commands
 
 | Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start the Next.js development server. |
-| `npm run setup:panorama` | Install the pinned NumPy/OpenCV laptop processor requirements. |
-| `npm run lint` | Run ESLint across application, configuration, and tests. |
-| `npm run typecheck` | Run strict TypeScript checking without emitting files. |
-| `npm test` | Run the Vitest component suite once. |
-| `npm run test:watch` | Run Vitest in watch mode. |
-| `npm run build` | Create the production Next.js server build. |
-| `npm run start` | Run the production website and processing API on port 3000. |
-| `npm run preview` | Run the production build at `http://127.0.0.1:4173` for browser tests. |
-| `npm run test:e2e` | Run Playwright against the current production server build. Run `npm run build` first. |
-| `npm run test:e2e:ui` | Open Playwright's interactive test runner. |
-| `npm run verify` | Run lint, typecheck, unit tests, production build, and browser tests in sequence. |
+|---------|---------|
+| `make dev` | Run development container with hot reload |
+| `make prod` | Build and run production container |
+| `make build` | Build production Docker image |
+| `make build-dev` | Build development Docker image |
+| `make logs` | Tail development logs |
+| `make shell` | Open shell in development container |
+| `make clean` | Remove containers and volumes |
+| `make stop` | Stop containers |
 
-The Playwright projects use the locally installed Google Chrome channel. Install Chrome before running the browser suite on a new machine.
+## Project Data
 
-## Release verification
+Completed scans are saved to `.astra3d-data/projects/<project-id>/` containing:
+- `project.json` - Project manifest
+- `panorama.jpg` - The stitched panorama
+- `frames/` - Source photographs
 
-Run `npm run verify` against every release candidate. It exercises linting, strict type checking, unit tests, the production static export, and browser interaction tests. Accessibility and performance audits are lab measurements and can vary by machine and hosting conditions; do not treat a previous local score as a guarantee for a new build.
+The Docker compose file mounts a named volume for persistent project data.
 
-## Production deployment
+## Features
 
-Create and run a fresh Node.js build:
+- **Room Capture Studio** (`/studio/`): Phone-first workflow with 12 (quick) or 36 (full) photos per room
+- **IMU-guided capture**: Motion-sensor guidance with automatic still capture
+- **360° Panorama stitching**: SIFT alignment, exposure compensation, blending
+- **Optional ML matcher**: SuperPoint+LightGlue for low-texture rooms
+- **Interactive tours**: WebGL panorama viewer with hotspots, floor plan, navigation
+- **Demo flagship**: "Astra Atelier" - 3-room fashion boutique
+
+## Docker
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | Multi-stage build (dev + production) |
+| `docker-compose.yml` | Development workflow |
+| `docker-compose.prod.yml` | Production deployment |
+| `.dockerignore` | Build context exclusions |
+
+### Development Image
+- Hot reload enabled via volume mount
+- All dependencies included
+- Python/OpenCV for panorama processing
+
+### Production Image
+- Optimized multi-stage build
+- Non-root user for security
+- Healthcheck included
+
+## Testing
 
 ```bash
-npm ci
-npm run build
-npm run start
+# Run tests inside container
+docker-compose exec astra3d npm test
+
+# E2E tests (after build)
+docker-compose exec astra3d npm run test:e2e
+
+# Full verification
+docker-compose exec astra3d npm run verify
 ```
 
-Deploy the application to a Node.js-capable host. A static-only host is no longer sufficient because the panorama route validates and processes incoming room images. For local phone testing, keep the Node process on the laptop and use the ADB reverse connection described above.
+## Shared Phone/Laptop Projects
 
-The canonical production URL is currently `https://astra3d.com`. If the release will live elsewhere, update `metadataBase` and the canonical value in `src/app/layout.tsx`, plus the URLs in `src/app/robots.ts` and `src/app/sitemap.ts` before building.
+Phone and laptop must be on the same network. For camera access on phone, the laptop server must use HTTPS or localhost. Use ADB reverse proxy for local testing:
 
-## Content and architecture
+```powershell
+adb connect PHONE_IP:PORT
+adb reverse tcp:3000 tcp:3000
+```
 
-```text
+Then open `http://localhost:3000/studio/` on the phone.
+
+## Architecture
+
+```
 src/
-├── app/                    Pages, processing API, metadata, robots, and sitemap
+├── app/                    Pages, API routes, metadata
 ├── components/
-│   ├── demo-request/       Accessible local demo-request experience
-│   ├── platform/           Showcase, workflow, dashboard, and capability sections
-│   └── tour/               Panorama, hotspot, floor-plan, and product interactions
-├── data/
-│   ├── flagship-tour.ts    Three-scene tour, hotspots, and demo product catalog
-│   └── platform.ts         Typed experience and capability content
-├── server/                 Private laptop panorama worker orchestration
-├── test/                   Vitest component, API, and processor coverage
-└── types/
-    ├── platform.ts         Marketing experience and lead-request models
-    └── tour.ts             Panorama, scene, hotspot, and product models
-tests/e2e/                  Playwright interaction and accessibility coverage
-public/images/              Optimized environments and Open Graph artwork
-.astra3d-data/              Ignored local project library created at runtime
+│   ├── tour/               Panorama viewer, hotspots
+│   ├── platform/           Marketing showcase
+│   └── room-capture/       Camera capture studio
+├── server/                 Panorama worker orchestration
+├── data/                   Tour and platform content
+└── types/                  TypeScript definitions
 ```
 
-Edit `src/data/platform.ts` to change industries, hotspots, capabilities, workflow steps, or demonstrative dashboard values. Each `Experience` points to a local image and supplies positioned hotspots as percentages so the showcase remains responsive.
+## Limitations
 
-The hero's progressive-rendering decisions live in `src/components/hero-canvas.tsx`; the Three.js scene itself lives in `src/components/hero-scene.tsx` and is lazy-loaded on capable devices.
+- No authentication or user accounts
+- No cloud storage - all data is local
+- Studio requires fixed standing point (no walkable reconstruction)
+- No WebXR/VR - browser-based only
+- Demo cart/checkout is illustrative only
 
-## Functional flagship tour
+## Canonical URL
 
-The flagship content model lives in `src/data/flagship-tour.ts`. Each scene defines responsive equirectangular panorama sources, a poster fallback, an initial camera view, a floor-plan position, and typed hotspots. Hotspot actions are discriminated as navigation, information, or product interactions. Product entries include local finish options and visibly marked demonstration-commerce metadata.
-
-The tour UI is lazy-loaded from `src/components/tour/`. Its enhanced path maps a panorama to the inside of a WebGL sphere and projects hotspot yaw/pitch coordinates into the current viewport. Visitors can drag or swipe to look around, use keyboard controls, zoom and reset the camera, jump between rooms from the floor plan, open detail panels, inspect code-built products, enter fullscreen where supported, and copy a deep link or iframe snippet. If enhanced rendering is unavailable, the same scene content and interactions remain available over a static poster.
-
-The share controls create a URL for the currently hosted build and, where available, use the browser share or clipboard API. They do not publish the site, provision an embed service, or create a Google Business listing.
-
-## Demonstration boundaries
-
-This repository does not include authentication, a CMS, cloud storage, a no-code tour builder, persistent analytics, inventory synchronization, checkout, payment processing, or a lead-delivery backend. It now includes a local single-viewpoint panorama creator, with these explicit boundaries:
-
-- The studio takes 12 quick-scan or 36 full-scan stills from the live camera and uploads them only to the connected Node server. Quick scan captures the eye-level ring, with soft-filled ceiling and floor regions; choose Full to photograph those views instead. The outer sweeps are tilted 50°, which closes the polar gap entirely on a typical 4:3 phone and an ultrawide and cuts it to 6° on the narrowest 3:4 crop. Tilting further would close that last 6° but costs the cross-band overlap the eye-level ring is matched against. The worker measures neighboring overlaps, projects the photos, compensates exposure, and blends them. It never records video and does not perform depth estimation or reconstruct walkable geometry.
-- The user must remain at one fixed point. The generated result supports looking around but is not a walkable geometric model and cannot move between reconstructed camera positions.
-- Ultrawide access depends on the phone and browser exposing either a hardware zoom range below 1× or multiple rear `videoinput` devices. When neither is available, Astra3D cannot reproduce a real 0.6× field of view and keeps the honest 1× minimum.
-- IndexedDB caches only the latest opened panorama in each browser profile. The shared laptop project store is durable across browser/device changes, but it is still local data and should be backed up separately.
-- The broader Import, Customize, and Launch workflow still describes the proposed multi-room product. Users cannot yet add floor nodes, hotspots, room connections, or publish a generated tour.
-- Control Center metrics, journey paths, engagement totals, and inventory rows are illustrative demo data. No visitor behavior is collected or stored.
-- Product prices and availability are fictional. Finish selection and the demo bag exist only in local React state and do not reserve stock, create a cart, place an order, or charge a payment method.
-- The demo-request form validates in the browser and shows a local confirmation, but it does not transmit or retain contact information.
-- Share links and embed snippets work only after the Node application is hosted at the configured canonical origin.
-- This release supports desktop, mobile, and tablet browsers. It does not start a WebXR session or provide headset/controller interaction, so it is not advertised as a VR experience.
-- Retail is the only fully walkable multi-room tour in this release. Real-estate, hospitality, and art sections are labeled interactive concept previews.
-
-## Demo-request behavior
-
-The request form intentionally has no backend. A valid submission changes only local React state, and the confirmation explicitly says that no details were transmitted. To connect lead delivery later, send a validated `LeadRequest` to an approved endpoint inside the form submit handler, then replace the preview disclosure with the appropriate privacy and consent language.
-
-## Generated environment assets
-
-The four showcase environments were generated as original visual assets for this repository and then resized to 1600×900 WebP files:
-
-- `public/images/experience-retail.webp`
-- `public/images/experience-real-estate.webp`
-- `public/images/experience-hospitality.webp`
-- `public/images/experience-art.webp`
-
-The prompt direction specified premium 16:9 architectural visualizations in midnight navy, ice white, electric cyan, and restrained warm gold; clean composition zones for code-native hotspots; and no people, text, logos, trademarks, watermarks, UI, or collage layouts. The Open Graph image is a deterministic 1200×630 crop derived from the original retail render.
-
-The interactive flagship uses three original equirectangular demonstration scenes, each exported in 2048×1024 desktop and 1280×640 mobile variants plus a 960×540 poster fallback under `public/images/tours/flagship/`. They depict the same fictional boutique across Arrival, Collection, and Private Lounge; they are not photographs or scans of an existing property.
-
-All logos, icons, charts, dashboard chrome, and interface treatments are code-native.
+The canonical URL is `https://astra3d.com`. Update `metadataBase` in `src/app/layout.tsx` before deployment.

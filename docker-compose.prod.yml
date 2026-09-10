@@ -1,0 +1,26 @@
+services:
+  astra3d:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: astra3d
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist project data
+      - astra3d-data:/app/.astra3d-data
+    environment:
+      - NODE_ENV=production
+      - ASTRA3D_DATA_DIR=/app/.astra3d-data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  astra3d-data:
+    driver: local
