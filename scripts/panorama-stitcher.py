@@ -1154,6 +1154,24 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             retake_sequences,
         )
 
+    # `coverage` above only inspects the belt the sweeps are expected to reach,
+    # so it read a perfect 1.0 for years while the poles went unphotographed.
+    # Measure the whole sphere as well, weighting each row by cos(latitude)
+    # because an equirectangular row near a pole stands for far less solid
+    # angle than one at the horizon, and report how big the unseen cap is.
+    latitudes = np.pi * 0.5 - (np.arange(blend_height, dtype=np.float32) + 0.5) * (np.pi / blend_height)
+    row_weights = np.cos(latitudes)
+    photographed = (coverage != 0).astype(np.float32)
+    sphere_coverage = float(
+        (photographed.mean(axis=1) * row_weights).sum() / row_weights.sum()
+    )
+    seen_rows = np.flatnonzero(photographed.any(axis=1))
+    if seen_rows.size:
+        top_cap = 90.0 - float(np.degrees(latitudes[seen_rows[0]]))
+        bottom_cap = 90.0 + float(np.degrees(latitudes[seen_rows[-1]]))
+    else:
+        top_cap = bottom_cap = 90.0
+
     compensate_exposure(images, masks, corners)
     timer.mark("exposure")
     find_seams(images, masks, corners, seam_scale)
@@ -1198,6 +1216,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "fallbackPairs": fallback_pairs,
         "coverage": round(coverage_ratio, 3),
         "coverageScope": "eye-level ring" if quick else "three bands",
+        "sphereCoverage": round(sphere_coverage, 3),
+        "unphotographedCapDegrees": [round(top_cap, 1), round(bottom_cap, 1)],
         "blendResolution": [blend_width, blend_height],
         "retakeSequences": retake_sequences,
         "warnings": warnings,

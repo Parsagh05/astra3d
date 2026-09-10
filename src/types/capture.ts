@@ -36,6 +36,10 @@ export type PanoramaQualityReport = {
   fallbackPairs: number;
   coverage: number;
   coverageScope?: "eye-level ring" | "three bands";
+  /** Share of the whole sphere actually photographed, weighted by solid angle. */
+  sphereCoverage?: number;
+  /** Degrees of ceiling and floor no photograph reached, as [top, bottom]. */
+  unphotographedCapDegrees?: [number, number];
   retakeSequences: number[];
   warnings: string[];
 };
