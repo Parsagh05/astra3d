@@ -1,0 +1,24 @@
+services:
+  astra3d:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: astra3d-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source for hot reload
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+      # Persist project data
+      - astra3d-data:/app/.astra3d-data
+    environment:
+      - NODE_ENV=development
+      - ASTRA3D_DATA_DIR=/app/.astra3d-data
+    restart: unless-stopped
+
+volumes:
+  astra3d-data:
+    driver: local
