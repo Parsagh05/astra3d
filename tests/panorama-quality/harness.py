@@ -196,6 +196,8 @@ def run_case(
     matcher: str = "auto",
     lens_fov: float = HFOV,
     measure_lens: bool = False,
+    capture_extent: str = "full",
+    capture_zoom: float = 1.0,
     frame_width: int = FRAME_WIDTH,
     output_width: int = 1536,
     stitcher: str | Path = DEFAULT_STITCHER,
@@ -210,6 +212,8 @@ def run_case(
 
     frame_height = round(frame_width * 4 / 3)
     poses = ground_truth_poses(perturb, roll)
+    if capture_extent == "quick":
+        poses = {sequence: pose for sequence, pose in poses.items() if sequence < CAPTURE_COLUMNS}
     if uneven:
         # Real sweeps are not metronomic: some turns overshoot the guided
         # target and others fall short.
@@ -255,6 +259,8 @@ def run_case(
                 "--width", str(output_width),
                 "--height", str(output_width // 2),
                 "--columns", str(CAPTURE_COLUMNS),
+                "--capture-mode", capture_extent,
+                "--zoom", str(capture_zoom),
                 # The scene was rendered with a known lens, so the stitch is
                 # measured here rather than the calibration.
                 # 0 asks the stitcher to recover the lens from the photographs.
@@ -303,6 +309,8 @@ def run_case(
             "matchedPairs": report.get("matchedPairs"),
             "fallbackPairs": report.get("fallbackPairs"),
             "coverage": report.get("coverage"),
+            "coverageScope": report.get("coverageScope"),
+            "warnings": report.get("warnings"),
             "fusedFrames": report.get("fusedFrames"),
             "sourceWidth": report.get("sourceWidth"),
             "matcher": report.get("matcher"),

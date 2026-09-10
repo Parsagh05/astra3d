@@ -23,7 +23,7 @@ describe("panorama upload client", () => {
     ];
 
     const upload = createPanoramaUpload(frames);
-    expect(Array.from(upload.keys())).toEqual(["room-name", "frame-0", "zoom-0", "frame-1", "zoom-1"]);
+    expect(Array.from(upload.keys())).toEqual(["room-name", "capture-mode", "frame-0", "zoom-0", "frame-1", "zoom-1"]);
     expect(upload.get("room-name")).toBe("My room");
     expect(upload.get("frame-0")).toBeInstanceOf(File);
     expect(upload.get("zoom-1")).toBe("1.2");

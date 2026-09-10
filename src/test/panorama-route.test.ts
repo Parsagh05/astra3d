@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+import { CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 import { GET, POST } from "@/app/api/panorama/route";
 
 describe("panorama processing route", () => {
@@ -11,7 +11,8 @@ describe("panorama processing route", () => {
     await expect(response.json()).resolves.toMatchObject({
       ready: true,
       processor: "opencv-feature-aligned",
-      expectedFrames: TOTAL_CAPTURE_SLOTS,
+      expectedFrames: CAPTURE_COLUMNS,
+      captureModes: { quick: CAPTURE_COLUMNS, full: TOTAL_CAPTURE_SLOTS },
       output: { width: 3072, height: 1536 },
       pipeline: expect.arrayContaining(["sift-alignment", "graph-cut-seams", "multiband-blend"]),
     });

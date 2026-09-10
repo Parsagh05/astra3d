@@ -233,6 +233,7 @@ export function HeroCanvas() {
   );
   const prefersReducedData = useMediaQuery("(prefers-reduced-data: reduce)");
   const isCompact = useMediaQuery("(max-width: 720px)");
+  const touchDevice = useMediaQuery("(pointer: coarse)");
   const documentIsVisible = useDocumentVisibility();
   const tourIsInactive = useTourInactive();
   const { hasEntered, isVisible } = useViewportActivity(containerRef);
@@ -241,7 +242,7 @@ export function HeroCanvas() {
     (navigator as NavigatorWithConnection).connection?.saveData === true;
   const enhancementRequested = useDeferredEnhancement(
     containerRef,
-    !prefersReducedMotion && !prefersReducedData && !savesData,
+    !prefersReducedMotion && !prefersReducedData && !savesData && !touchDevice,
   );
   const supportsWebGL = useWebGLSupport(enhancementRequested);
   const canRender =
@@ -249,6 +250,7 @@ export function HeroCanvas() {
     supportsWebGL &&
     !prefersReducedMotion &&
     !prefersReducedData &&
+    !touchDevice &&
     !savesData &&
     !failed;
 

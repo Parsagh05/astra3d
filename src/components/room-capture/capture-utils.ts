@@ -163,6 +163,35 @@ export type LiveStillCapture = {
   sharpness: number;
 };
 
+export type PreviewStillCapture = { image: Blob; thumbnailUrl: string };
+
+function encodeJpeg(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((image) => image ? resolve(image) : reject(new Error("The photo could not be saved. Try this target again.")), "image/jpeg", quality);
+  });
+}
+
+/** One preview still per target: bounded pixels, asynchronous encoding, and a
+ * tiny thumbnail so the coverage map never decodes all full-size photographs. */
+export async function capturePreviewStill(video: HTMLVideoElement, zoom = 1): Promise<PreviewStillCapture> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new Error("The camera is still starting. Try again in a moment.");
+  }
+  const height = Math.round(Math.min(1440, croppedSourceHeight(video.videoWidth, video.videoHeight, zoom)));
+  const canvas = createCanvas(Math.round(height * STILL_ASPECT), height);
+  const thumbnail = createCanvas(160, 214);
+  try {
+    drawCover(getCanvasContext(canvas), video, video.videoWidth, video.videoHeight, canvas.width, canvas.height, zoom);
+    getCanvasContext(thumbnail).drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
+    const image = await encodeJpeg(canvas, 0.86);
+    const preview = await encodeJpeg(thumbnail, 0.7);
+    return { image, thumbnailUrl: URL.createObjectURL(preview) };
+  } finally {
+    // Release canvas backing stores immediately; only compressed Blobs remain.
+    canvas.width = canvas.height = thumbnail.width = thumbnail.height = 1;
+  }
+}
+
 /** Portrait 3:4 crop shared by every capture path. */
 const STILL_ASPECT = 3 / 4;
 /** Upper bound on saved still height; keeps 24-frame uploads laptop-friendly. */

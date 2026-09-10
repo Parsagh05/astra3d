@@ -34,9 +34,14 @@ export const CAPTURE_BANDS: readonly {
 ] as const;
 
 export const TOTAL_CAPTURE_SLOTS = CAPTURE_COLUMNS * CAPTURE_BANDS.length;
+export type CaptureExtent = "quick" | "full";
 
-export function buildCaptureSlots(): CaptureSlot[] {
-  return CAPTURE_BANDS.flatMap((band, bandIndex) =>
+export function getCaptureBands(extent: CaptureExtent) {
+  return extent === "quick" ? CAPTURE_BANDS.slice(0, 1) : CAPTURE_BANDS;
+}
+
+export function buildCaptureSlots(extent: CaptureExtent = "full"): CaptureSlot[] {
+  return getCaptureBands(extent).flatMap((band, bandIndex) =>
     Array.from({ length: CAPTURE_COLUMNS }, (_, column) => ({
       id: `${band.id}-${column}`,
       band: band.id,
@@ -47,8 +52,8 @@ export function buildCaptureSlots(): CaptureSlot[] {
   );
 }
 
-export function getCaptureProgress(frameCount: number) {
-  return Math.round((frameCount / TOTAL_CAPTURE_SLOTS) * 100);
+export function getCaptureProgress(frameCount: number, total = TOTAL_CAPTURE_SLOTS) {
+  return Math.round((frameCount / total) * 100);
 }
 
 /** Returns the shortest signed change between two compass headings. */

@@ -1019,7 +1019,9 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     if args.horizontal_fov <= 0.0:
         lens_fov, lens_measured = measure_horizontal_fov(input_dir, learned)
         timer.mark("lens")
-    effective_fov = math.degrees(
+    # Calibration measures the already-cropped uploaded photographs. Applying
+    # zoom again would narrow the lens twice and needlessly demand retakes.
+    effective_fov = lens_fov if lens_measured else math.degrees(
         2.0 * math.atan(math.tan(math.radians(lens_fov * 0.5)) / args.zoom)
     )
     effective_fov = max(38.0, min(112.0, effective_fov))
@@ -1103,7 +1105,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     blind_pairs = sum(
         1 for report in pair_reports if report.get("fallback") and not report.get("imu")
     )
-    if blind_pairs > 9:
+    if blind_pairs > len(frames) // 4:
         human_directions = ", ".join(str(sequence + 1) for sequence in retake_sequences[:6])
         suffix = f" Retake directions {human_directions}." if human_directions else ""
         raise CaptureQualityError(
@@ -1133,7 +1135,10 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     for mask, (left, top) in zip(masks, corners):
         target = coverage[top : top + mask.shape[0], left : left + mask.shape[1]]
         np.maximum(target, mask, out=target)
-    central = coverage[round(blend_height * 0.12) : round(blend_height * 0.88)]
+    # A quick scan photographs the eye-level ring. Check its central belt for
+    # holes; the unphotographed ceiling/floor are explicitly disclosed below.
+    quick = len(BANDS) == 1
+    central = coverage[round(blend_height * (0.40 if quick else 0.12)) : round(blend_height * (0.60 if quick else 0.88))]
     coverage_ratio = float(np.count_nonzero(central) / central.size)
     if coverage_ratio < 0.92:
         raise CaptureQualityError(
@@ -1158,6 +1163,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
     matched_pairs = len(pair_reports) - fallback_pairs
     alignment_score = matched_pairs / len(pair_reports)
     warnings: list[str] = []
+    if quick:
+        warnings.append("Quick scan: ceiling and floor are soft-filled, not photographed. Use Full scan to capture those views.")
     blurred = blurred_sequences(frames)
     if blurred:
         warnings.append(
@@ -1182,6 +1189,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "matchedPairs": matched_pairs,
         "fallbackPairs": fallback_pairs,
         "coverage": round(coverage_ratio, 3),
+        "coverageScope": "eye-level ring" if quick else "three bands",
         "blendResolution": [blend_width, blend_height],
         "retakeSequences": retake_sequences,
         "warnings": warnings,
@@ -1209,6 +1217,7 @@ def main() -> int:
     parser.add_argument("--height", type=int, required=True)
     parser.add_argument("--quality", type=int, default=90)
     parser.add_argument("--columns", type=int, default=CAPTURE_COLUMNS)
+    parser.add_argument("--capture-mode", choices=["quick", "full"], default="full")
     parser.add_argument("--horizontal-fov", type=float, default=0.0,
                         help="0 measures the lens from the photographs themselves")
     parser.add_argument("--zoom", type=float, default=1.0)
@@ -1221,6 +1230,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.columns >= 3:
         globals()["CAPTURE_COLUMNS"] = args.columns
+    if args.capture_mode == "quick":
+        globals()["BANDS"] = (("middle", 0.0),)
     report_path = Path(args.report)
     try:
         report = process(args)

@@ -37,7 +37,8 @@ export function GET() {
     {
       ready: true,
       processor: "opencv-feature-aligned",
-      expectedFrames: TOTAL_CAPTURE_SLOTS,
+      expectedFrames: buildCaptureSlots("quick").length,
+      captureModes: { quick: buildCaptureSlots("quick").length, full: TOTAL_CAPTURE_SLOTS },
       output: { width: PANORAMA_WIDTH, height: PANORAMA_HEIGHT },
       pipeline: [
         "quality-check",
@@ -66,11 +67,16 @@ async function processCaptureRequest(request: Request) {
   }
 
   const frames: ServerPanoramaFrame[] = [];
+  // Older clients omit the mode and still submit all three bands.
+  const captureExtent = formData.get("capture-mode") ?? "full";
+  if (captureExtent !== "quick" && captureExtent !== "full") {
+    return errorResponse("Choose quick or full room capture.", 400, "INVALID_CAPTURE_MODE");
+  }
   let totalBytes = 0;
   const roomNameValue = formData.get("room-name");
   const roomName = typeof roomNameValue === "string" ? roomNameValue : "My room";
 
-  for (const slot of buildCaptureSlots()) {
+  for (const slot of buildCaptureSlots(captureExtent)) {
     const value = formData.get(`frame-${slot.sequence}`);
     if (!(value instanceof File)) {
       return errorResponse(
@@ -136,7 +142,7 @@ async function processCaptureRequest(request: Request) {
   }
 
   try {
-    const { panorama, report, width, height } = await processRoomPanorama(frames);
+    const { panorama, report, width, height } = await processRoomPanorama(frames, { captureExtent });
     let project;
     try {
       project = await saveCapturedProject({
@@ -163,6 +169,7 @@ async function processCaptureRequest(request: Request) {
         "X-Astra3D-Height": String(height),
         "X-Astra3D-Alignment": String(report.alignmentScore),
         "X-Astra3D-Coverage": String(report.coverage),
+        "X-Astra3D-Coverage-Scope": report.coverageScope ?? "three bands",
         "X-Astra3D-Fallback-Pairs": String(report.fallbackPairs),
         "X-Astra3D-Matched-Pairs": String(report.matchedPairs),
         "X-Astra3D-Method": report.method,

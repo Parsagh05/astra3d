@@ -1,4 +1,4 @@
-import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+import { TOTAL_CAPTURE_SLOTS, type CaptureExtent } from "@/lib/capture-plan";
 import type { CapturedFrame, PanoramaQualityReport } from "@/types/capture";
 
 export type PanoramaProcessingPhase =
@@ -57,11 +57,12 @@ function imageExtension(image: Blob) {
       : "jpg";
 }
 
-export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName = "My room") {
+export function createPanoramaUpload(frames: readonly CapturedFrame[], roomName = "My room", extent: CaptureExtent = "full") {
   const formData = new FormData();
   formData.append("room-name", roomName);
+  formData.append("capture-mode", extent);
   for (const frame of [...frames].sort((a, b) => a.sequence - b.sequence)) {
-    const image = decodeCaptureDataUrl(frame.dataUrl);
+    const image = frame.image ?? decodeCaptureDataUrl(frame.dataUrl ?? "");
     formData.append(
       `frame-${frame.sequence}`,
       image,
@@ -128,6 +129,7 @@ function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
       : "opencv-sift-spherical-v4",
     alignmentScore: numberHeader(request, "X-Astra3D-Alignment", 0),
     coverage: numberHeader(request, "X-Astra3D-Coverage", 0),
+    coverageScope: request.getResponseHeader("X-Astra3D-Coverage-Scope") === "eye-level ring" ? "eye-level ring" : "three bands",
     fallbackPairs: numberHeader(request, "X-Astra3D-Fallback-Pairs", 0),
     matchedPairs: numberHeader(request, "X-Astra3D-Matched-Pairs", 0),
     retakeSequences: retakeHeader
@@ -141,12 +143,13 @@ export function processPanoramaOnServer(
   frames: readonly CapturedFrame[],
   roomName: string,
   onUpdate: (update: PanoramaProcessingUpdate) => void,
+  extent: CaptureExtent = "full",
 ) {
   return new Promise<ProcessedPanorama>((resolve, reject) => {
     let formData: FormData;
     try {
       onUpdate({ phase: "preparing", progress: 6 });
-      formData = createPanoramaUpload(frames, roomName);
+      formData = createPanoramaUpload(frames, roomName, extent);
     } catch (error) {
       reject(error);
       return;

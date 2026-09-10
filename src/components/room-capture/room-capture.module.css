@@ -930,6 +930,7 @@
   left: 50%;
   display: grid;
   min-width: min(24rem, calc(100% - 2rem));
+  max-width: calc(100% - 1.4rem);
   justify-items: center;
   padding: 0.85rem 1rem;
   border: 1px solid rgba(103, 220, 255, 0.32);
@@ -981,6 +982,7 @@
   inset: 0;
   overflow: hidden;
   pointer-events: none;
+  contain: layout paint;
 }
 
 .centerLock,
@@ -994,6 +996,8 @@
 }
 
 .centerLock {
+  width: 5.6rem;
+  height: 5.6rem;
   opacity: 0.75;
 }
 
@@ -1048,6 +1052,7 @@
     translate(-50%, -50%)
     translate(var(--target-x), var(--target-y));
   transition:
+    transform 100ms linear,
     border-color 160ms ease,
     box-shadow 160ms ease;
 }
@@ -2046,8 +2051,7 @@
     padding: 0.65rem 0.8rem;
   }
 
-  .targetMarker,
-  .centerLock {
+  .targetMarker {
     width: 4rem;
     height: 4rem;
   }
@@ -2091,10 +2095,33 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .targetMarker,
   .progressTrack span,
   .processingTrack span,
   .bandList i b,
   .directionDial > div span {
     transition: none;
+  }
+}
+
+.coverageNote {
+  margin-block: 0.75rem 1.25rem;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+@media (pointer: coarse) {
+  .autoCaptureState,
+  .cameraInstruction,
+  .zoomControls,
+  .lensPicker {
+    backdrop-filter: none;
+    background-color: rgba(3, 10, 19, 0.94);
+  }
+
+  .targetMarker,
+  .targetMarker[data-aligned="true"] {
+    box-shadow: none;
   }
 }

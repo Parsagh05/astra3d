@@ -17,24 +17,21 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { orientationToView } from "@/components/tour/tour-math";
+import { getCaptureBands, type CaptureExtent } from "@/lib/capture-plan";
 import type { CapturedFrame, GeneratedRoomRecord } from "@/types/capture";
 import type { SharedRoomProject } from "@/types/capture";
 
 import {
   buildCaptureLockConstraints,
   buildCaptureSlots,
-  CAPTURE_BANDS,
   CAPTURE_COLUMNS,
-  captureBestStill,
-  captureExposureBracket,
+  capturePreviewStill,
   getCaptureProgress,
-  getPitchDirection,
-  getRelativeCameraPitch,
   getSignedAngleDelta,
-  TOTAL_CAPTURE_SLOTS,
   type CaptureLockCapabilities,
   type CaptureLockSettings,
-  type LiveStillCapture,
+  type PreviewStillCapture,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
 import { SharedProjectLibrary } from "./shared-project-library";
@@ -54,6 +51,8 @@ import {
   saveGeneratedRoom,
 } from "./room-storage";
 import styles from "./room-capture.module.css";
+import { updateCaptureGuidance, type CaptureGuidanceState } from "./capture-guidance";
+import { EMPTY_GUIDANCE, LiveCaptureGuide, type LiveCaptureGuideHandle } from "./live-capture-guide";
 
 type StudioStage = "intro" | "capture" | "processing" | "result";
 type CameraMode = "idle" | "requesting" | "live" | "denied";
@@ -73,16 +72,7 @@ type OrientationEventConstructor = typeof DeviceOrientationEvent & {
   requestPermission?: () => Promise<"granted" | "denied">;
 };
 
-const captureSlots = buildCaptureSlots();
 const defaultZoomRange: ZoomRange = { min: 1, max: 1.4, step: 0.1, hardware: false };
-
-/**
- * Laplacian-variance floor for automatic captures. Below this a detailed view
- * is almost certainly motion-blurred; near-zero means the scene had no
- * measurable detail at all, which the laptop's relative check handles better.
- */
-const AUTO_CAPTURE_BLUR_FLOOR = 6;
-const MIN_MEASURABLE_SHARPNESS = 0.5;
 
 function getCameraLabel(device: MediaDeviceInfo, index: number) {
   const label = device.label.trim();
@@ -94,7 +84,14 @@ function getCameraLabel(device: MediaDeviceInfo, index: number) {
 }
 
 export function RoomStudio() {
+  const [captureExtent, setCaptureExtent] = useState<CaptureExtent>("quick");
+  const captureSlots = useMemo(() => buildCaptureSlots(captureExtent), [captureExtent]);
+  const captureBands = useMemo(() => getCaptureBands(captureExtent), [captureExtent]);
+  const totalCaptureSlots = captureSlots.length;
   const videoRef = useRef<HTMLVideoElement>(null);
+  const framesRef = useRef<CapturedFrame[]>([]);
+  const thumbnailUrlsRef = useRef(new Set<string>());
+  const captureSessionRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const countdownIntervalRef = useRef<number | null>(null);
   const autoStatusRef = useRef<AutoScanStatus>("idle");
@@ -103,15 +100,16 @@ export function RoomStudio() {
   const linkedProjectHandledRef = useRef(false);
   const bandCaptureCountRef = useRef(0);
   const activeBandIndexRef = useRef(0);
+  const guidanceRef = useRef<CaptureGuidanceState | null>(null);
+  const guidanceDisplayRef = useRef<LiveCaptureGuideHandle>(null);
   const orientationRef = useRef({
     alpha: null as number | null,
-    lastAlpha: null as number | null,
+    cameraYaw: null as number | null,
+    cameraPitch: null as number | null,
+    lastYaw: null as number | null,
     accumulated: 0,
     lastEventAt: 0,
-    baselineBeta: null as number | null,
-    pitchDirection: null as -1 | 1 | null,
-    lastBeta: null as number | null,
-    alignmentStartedAt: null as number | null,
+    baselinePitch: null as number | null,
     betaSample: null as number | null,
     gammaSample: null as number | null,
   });
@@ -140,25 +138,19 @@ export function RoomStudio() {
   const [cameraLenses, setCameraLenses] = useState<CameraLens[]>([]);
   const [activeCameraId, setActiveCameraId] = useState("");
   const [countdown, setCountdown] = useState(3);
-  const [guidance, setGuidance] = useState({
-    aligned: false,
-    holdProgress: 0,
-    pitchError: 0,
-    yawError: 0,
-  });
 
   const nextSlot = captureSlots[frames.length];
   const activeSlot = retakeSequence === null
     ? nextSlot
     : captureSlots[retakeSequence];
-  const activeBand = CAPTURE_BANDS.find((band) => band.id === activeSlot?.band);
+  const activeBand = captureBands.find((band) => band.id === activeSlot?.band);
   const currentBandFrames = activeSlot
     ? frames.filter((frame) => frame.band === activeSlot.band).length
     : CAPTURE_COLUMNS;
   const activeDirection = retakeSequence === null
     ? currentBandFrames
     : activeSlot?.column ?? 0;
-  const captureComplete = frames.length === TOTAL_CAPTURE_SLOTS;
+  const captureComplete = frames.length === totalCaptureSlots;
 
   const clearAutoTimers = useCallback(() => {
     if (countdownIntervalRef.current !== null) {
@@ -168,12 +160,20 @@ export function RoomStudio() {
   }, []);
 
   const stopCamera = useCallback(() => {
+    captureSessionRef.current += 1;
     clearAutoTimers();
+    guidanceRef.current = null;
+    autoStatusRef.current = "idle";
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     captureLockRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, [clearAutoTimers]);
+
+  const releaseThumbnails = useCallback(() => {
+    thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    thumbnailUrlsRef.current.clear();
+  }, []);
 
   const lockCaptureAppearance = useCallback(async () => {
     const track = streamRef.current?.getVideoTracks?.()[0];
@@ -244,7 +244,7 @@ export function RoomStudio() {
     return () => window.clearTimeout(request);
   }, [refreshSharedProjects]);
 
-  useEffect(() => stopCamera, [stopCamera]);
+  useEffect(() => () => { stopCamera(); releaseThumbnails(); }, [stopCamera, releaseThumbnails]);
 
   const startCamera = useCallback(async (requestedDeviceId?: string) => {
     setError(null);
@@ -264,8 +264,9 @@ export function RoomStudio() {
           ...(requestedDeviceId
             ? { deviceId: { exact: requestedDeviceId } }
             : { facingMode: { ideal: "environment" } }),
-          width: { ideal: 1920 },
-          height: { ideal: 1440 },
+          width: { ideal: 1280 },
+          height: { ideal: 960 },
+          frameRate: { ideal: 24, max: 30 },
         },
       });
       streamRef.current = stream;
@@ -369,7 +370,9 @@ export function RoomStudio() {
 
   const beginCapture = () => {
     clearAutoTimers();
+    framesRef.current = [];
     setFrames([]);
+    releaseThumbnails();
     setError(null);
     setAutoScanStatus("idle");
     autoStatusRef.current = "idle";
@@ -383,51 +386,41 @@ export function RoomStudio() {
     setActiveCameraId("");
     bandCaptureCountRef.current = 0;
     activeBandIndexRef.current = 0;
-    orientationRef.current.baselineBeta = null;
-    orientationRef.current.pitchDirection = null;
-    orientationRef.current.lastBeta = null;
-    orientationRef.current.alignmentStartedAt = null;
+    orientationRef.current.baselinePitch = null;
+    orientationRef.current.lastYaw = null;
+    guidanceRef.current = null;
     setStage("capture");
     window.requestAnimationFrame(() => void startCamera());
   };
 
-  const addFrame = useCallback((capture: LiveStillCapture, bracketDataUrl?: string | null) => {
+  const addFrame = useCallback((capture: PreviewStillCapture, imu: CapturedFrame["imu"], capturedAt: number) => {
     const replacementSequence = retakeSequenceRef.current;
     retakeSequenceRef.current = null;
     setRetakeSequence(null);
     setError(null);
     setFlash(true);
     window.setTimeout(() => setFlash(false), 160);
-    const orientation = orientationRef.current;
-    const motionFresh = orientation.alpha !== null &&
-      orientation.betaSample !== null &&
-      orientation.gammaSample !== null &&
-      Date.now() - orientation.lastEventAt < 1500;
-    const imu = motionFresh
-      ? {
-          alpha: orientation.alpha as number,
-          beta: orientation.betaSample as number,
-          gamma: orientation.gammaSample as number,
-        }
-      : undefined;
-    setFrames((current) => {
-      const slot = captureSlots[replacementSequence ?? current.length];
-      if (!slot) return current;
-      const capturedFrame = {
-        ...slot,
-        dataUrl: capture.dataUrl,
-        capturedAt: Date.now(),
-        zoom: captureZoom,
-        ...(imu ? { imu } : {}),
-        ...(bracketDataUrl ? { bracketDataUrl } : {}),
-      };
-      const next = replacementSequence === null
-        ? [...current, capturedFrame]
-        : current.map((frame) => frame.sequence === replacementSequence ? capturedFrame : frame);
-      if (next.length === TOTAL_CAPTURE_SLOTS) stopCamera();
-      return next;
-    });
-  }, [captureZoom, stopCamera]);
+    const current = framesRef.current;
+    const slot = captureSlots[replacementSequence ?? current.length];
+    if (!slot) { URL.revokeObjectURL(capture.thumbnailUrl); return; }
+    const oldThumbnail = current.find((frame) => frame.sequence === slot.sequence)?.thumbnailUrl;
+    if (oldThumbnail) { URL.revokeObjectURL(oldThumbnail); thumbnailUrlsRef.current.delete(oldThumbnail); }
+    thumbnailUrlsRef.current.add(capture.thumbnailUrl);
+    const capturedFrame = {
+      ...slot,
+      image: capture.image,
+      thumbnailUrl: capture.thumbnailUrl,
+      capturedAt,
+      zoom: captureZoom,
+      ...(imu ? { imu } : {}),
+    };
+    const next = replacementSequence === null
+      ? [...current, capturedFrame]
+      : current.map((frame) => frame.sequence === replacementSequence ? capturedFrame : frame);
+    framesRef.current = next;
+    setFrames(next);
+    if (next.length === totalCaptureSlots) stopCamera();
+  }, [captureSlots, captureZoom, stopCamera, totalCaptureSlots]);
 
   const setAutomaticStatus = useCallback((status: AutoScanStatus) => {
     autoStatusRef.current = status;
@@ -438,68 +431,75 @@ export function RoomStudio() {
     if (!videoRef.current || autoStatusRef.current !== "scanning") return;
     if (captureInFlightRef.current) return;
     captureInFlightRef.current = true;
+    const session = captureSessionRef.current;
 
     try {
       const isRetaking = retakeSequenceRef.current !== null;
       const video = videoRef.current;
-      const track = streamRef.current?.getVideoTracks?.()[0];
       const softwareZoom = zoomRange.hardware ? 1 : captureZoom;
-      const capture = await captureBestStill(video, track, softwareZoom);
-      if (autoStatusRef.current !== "scanning") return;
-      if (
-        captureModeRef.current === "automatic" &&
-        capture.sharpness > MIN_MEASURABLE_SHARPNESS &&
-        capture.sharpness < AUTO_CAPTURE_BLUR_FLOOR
-      ) {
-        // Motion blur detected: drop the still and let the hold timer retake
-        // the same target instead of discovering the problem after upload.
-        orientationRef.current.alignmentStartedAt = null;
-        setGuidance((current) => ({ ...current, aligned: false, holdProgress: 0 }));
-        setError("That view looked motion-blurred, so it was not saved. Hold steady and it will retake automatically.");
+      const orientation = orientationRef.current;
+      const motionFresh = orientation.alpha !== null &&
+        orientation.betaSample !== null &&
+        orientation.gammaSample !== null &&
+        Date.now() - orientation.lastEventAt < 1500;
+      const imu = motionFresh
+        ? {
+            alpha: orientation.alpha as number,
+            beta: orientation.betaSample as number,
+            gamma: orientation.gammaSample as number,
+          }
+        : undefined;
+      const capturedAt = Date.now();
+      const capture = await capturePreviewStill(video, softwareZoom);
+      if (autoStatusRef.current !== "scanning" || session !== captureSessionRef.current) {
+        URL.revokeObjectURL(capture.thumbnailUrl);
         return;
       }
-      // A short under-exposed companion still lets the laptop recover bright
-      // windows during blending. Skipped silently when unsupported.
-      const bracketDataUrl = track
-        ? await captureExposureBracket(video, track, softwareZoom)
-        : null;
-      if (autoStatusRef.current !== "scanning") return;
-      addFrame(capture, bracketDataUrl);
+      // Steadiness is checked before the shutter; image quality is checked on
+      // the laptop. No second exposure or silent repeated photo on the phone.
+      addFrame(capture, imu, capturedAt);
       if (isRetaking) {
-        setAutomaticStatus(captureComplete ? "complete" : "scanning");
+        const count = framesRef.current.length;
+        activeBandIndexRef.current = Math.floor(count / CAPTURE_COLUMNS);
+        bandCaptureCountRef.current = count % CAPTURE_COLUMNS;
+        setAutomaticStatus(count === totalCaptureSlots ? "complete" : count % CAPTURE_COLUMNS === 0 ? "between" : "scanning");
         return;
       }
       const nextBandCount = bandCaptureCountRef.current + 1;
       bandCaptureCountRef.current = nextBandCount;
-      orientationRef.current.alignmentStartedAt = null;
-      setGuidance((current) => ({
-        ...current,
-        aligned: false,
-        holdProgress: 0,
-      }));
+      guidanceRef.current = null;
+      guidanceDisplayRef.current?.update(EMPTY_GUIDANCE);
 
       if (nextBandCount >= CAPTURE_COLUMNS) {
         clearAutoTimers();
-        if (activeBandIndexRef.current >= CAPTURE_BANDS.length - 1) {
+        if (activeBandIndexRef.current >= captureBands.length - 1) {
           setAutomaticStatus("complete");
         } else {
           setAutomaticStatus("between");
         }
       }
     } catch (captureError) {
+      if (session !== captureSessionRef.current) return;
       clearAutoTimers();
       setAutomaticStatus("idle");
       setError(captureError instanceof Error ? captureError.message : "Automatic capture stopped unexpectedly.");
     } finally {
       captureInFlightRef.current = false;
     }
-  }, [addFrame, captureComplete, captureZoom, clearAutoTimers, setAutomaticStatus, zoomRange.hardware]);
+  }, [addFrame, captureBands.length, captureZoom, clearAutoTimers, setAutomaticStatus, totalCaptureSlots, zoomRange.hardware]);
 
   useEffect(() => {
     const handleOrientation = (event: DeviceOrientationEvent) => {
-      if (event.alpha === null) return;
+      if (event.alpha === null || event.beta === null ||
+        !Number.isFinite(event.alpha) || !Number.isFinite(event.beta)) return;
+      // Alpha alone can jump when a nearly upright phone tilts sideways.
+      // The rear-camera vector combines all three angles and stays continuous.
+      const pose = orientationToView(event.alpha, event.beta,
+        typeof event.gamma === "number" && Number.isFinite(event.gamma) ? event.gamma : 0);
       const orientation = orientationRef.current;
       orientation.alpha = event.alpha;
+      orientation.cameraYaw = pose.yaw;
+      orientation.cameraPitch = pose.pitch;
       orientation.betaSample = event.beta;
       orientation.gammaSample = event.gamma;
       orientation.lastEventAt = Date.now();
@@ -511,71 +511,27 @@ export function RoomStudio() {
         return;
       }
 
-      if (orientation.lastAlpha === null) {
-        orientation.lastAlpha = event.alpha;
-        orientation.lastBeta = event.beta;
-        return;
+      if (orientation.lastYaw !== null) {
+        orientation.accumulated += getSignedAngleDelta(pose.yaw, orientation.lastYaw);
       }
-
-      const yawDelta = getSignedAngleDelta(
-        event.alpha,
-        orientation.lastAlpha,
-      );
-      const betaDelta =
-        event.beta !== null && orientation.lastBeta !== null
-          ? event.beta - orientation.lastBeta
-          : 0;
-      orientation.accumulated += yawDelta;
-      orientation.lastAlpha = event.alpha;
-      orientation.lastBeta = event.beta;
-
-      if (orientation.baselineBeta === null && event.beta !== null) {
-        orientation.baselineBeta = event.beta;
-      }
+      orientation.lastYaw = pose.yaw;
+      if (orientation.baselinePitch === null) orientation.baselinePitch = pose.pitch;
 
       const yawTarget = bandCaptureCountRef.current * (360 / CAPTURE_COLUMNS);
-      const yawError = yawTarget - Math.abs(orientation.accumulated);
       const pitchTarget = activeBandIndexRef.current === 1
         ? 35
         : activeBandIndexRef.current === 2
           ? -35
           : 0;
-      if (
-        activeBandIndexRef.current === 1 &&
-        orientation.pitchDirection === null &&
-        event.beta !== null &&
-        orientation.baselineBeta !== null &&
-        Math.abs(event.beta - orientation.baselineBeta) >= 8
-      ) {
-        // The upper sweep explicitly asks the user to point at the ceiling,
-        // so this first deliberate tilt safely calibrates the device's sign.
-        orientation.pitchDirection = getPitchDirection(event.beta, orientation.baselineBeta);
-      }
-      const relativePitch =
-        event.beta !== null && orientation.baselineBeta !== null
-          ? getRelativeCameraPitch(
-              event.beta,
-              orientation.baselineBeta,
-              orientation.pitchDirection ?? -1,
-            )
-          : pitchTarget;
-      const pitchError = pitchTarget - relativePitch;
-      const aligned = Math.abs(yawError) <= 5.5 && Math.abs(pitchError) <= 12;
-      const moving = Math.abs(yawDelta) > 1.1 || Math.abs(betaDelta) > 1.1;
+      const result = updateCaptureGuidance(guidanceRef.current, {
+        time: performance.now(),
+        yaw: Math.abs(orientation.accumulated),
+        pitch: pose.pitch - orientation.baselinePitch,
+      }, { yaw: yawTarget, pitch: pitchTarget });
+      guidanceRef.current = result.state;
+      guidanceDisplayRef.current?.update(result.guidance);
 
-      if (!aligned || moving) {
-        orientation.alignmentStartedAt = null;
-      } else if (orientation.alignmentStartedAt === null) {
-        orientation.alignmentStartedAt = performance.now();
-      }
-
-      const holdProgress = orientation.alignmentStartedAt === null
-        ? 0
-        : Math.min(1, (performance.now() - orientation.alignmentStartedAt) / 650);
-
-      setGuidance({ aligned, holdProgress, pitchError, yawError });
-
-      if (holdProgress >= 1) {
+      if (result.ready) {
         void captureAutomaticFrame();
       }
     };
@@ -591,11 +547,10 @@ export function RoomStudio() {
 
     activeBandIndexRef.current = Math.floor(frames.length / CAPTURE_COLUMNS);
     bandCaptureCountRef.current = frames.length % CAPTURE_COLUMNS;
-    orientationRef.current.lastAlpha = null;
-    orientationRef.current.lastBeta = null;
+    orientationRef.current.lastYaw = null;
     orientationRef.current.accumulated = 0;
-    orientationRef.current.alignmentStartedAt = null;
-    setGuidance({ aligned: false, holdProgress: 0, pitchError: 0, yawError: 0 });
+    guidanceRef.current = null;
+    guidanceDisplayRef.current?.update(EMPTY_GUIDANCE);
 
     if (captureMode === "manual") {
       captureModeRef.current = "manual";
@@ -639,8 +594,10 @@ export function RoomStudio() {
       }
       void lockCaptureAppearance();
       setAutomaticStatus("scanning");
-      orientationRef.current.lastAlpha = orientationRef.current.alpha;
-      orientationRef.current.lastBeta = orientationRef.current.baselineBeta;
+      orientationRef.current.lastYaw = orientationRef.current.cameraYaw;
+      if (orientationRef.current.baselinePitch === null) {
+        orientationRef.current.baselinePitch = orientationRef.current.cameraPitch;
+      }
       orientationRef.current.accumulated = 0;
     }, 1000);
   };
@@ -650,8 +607,8 @@ export function RoomStudio() {
     setCaptureMode(mode);
     captureModeRef.current = mode;
     setError(null);
-    orientationRef.current.alignmentStartedAt = null;
-    setGuidance({ aligned: false, holdProgress: 0, pitchError: 0, yawError: 0 });
+    guidanceRef.current = null;
+    guidanceDisplayRef.current?.update(EMPTY_GUIDANCE);
 
     if (autoScanStatus === "countdown" || autoScanStatus === "scanning") {
       if (mode === "manual") {
@@ -672,8 +629,7 @@ export function RoomStudio() {
 
       activeBandIndexRef.current = Math.floor(frames.length / CAPTURE_COLUMNS);
       bandCaptureCountRef.current = frames.length % CAPTURE_COLUMNS;
-      orientationRef.current.lastAlpha = orientationRef.current.alpha;
-      orientationRef.current.lastBeta = orientationRef.current.baselineBeta;
+      orientationRef.current.lastYaw = orientationRef.current.cameraYaw;
       orientationRef.current.accumulated = bandCaptureCountRef.current * (360 / CAPTURE_COLUMNS);
       void lockCaptureAppearance();
       setAutomaticStatus("scanning");
@@ -689,7 +645,7 @@ export function RoomStudio() {
     setCaptureMode("manual");
     if (!keepError) setError(null);
     const slot = captureSlots[sequence];
-    activeBandIndexRef.current = CAPTURE_BANDS.findIndex((band) => band.id === slot.band);
+    activeBandIndexRef.current = captureBands.findIndex((band) => band.id === slot.band);
     bandCaptureCountRef.current = slot.column;
     const cameraReady = streamRef.current ? true : await startCamera();
     if (cameraReady) {
@@ -738,8 +694,8 @@ export function RoomStudio() {
   }, [loadingSharedProjects, openSharedProject, sharedProjects, stage]);
 
   const assembleRoom = async (capturedFrames: readonly CapturedFrame[]) => {
-    if (capturedFrames.length !== TOTAL_CAPTURE_SLOTS) {
-      setError("Complete eye level, +35°, and −35° before finalizing the room.");
+    if (capturedFrames.length !== totalCaptureSlots) {
+      setError(`Capture all ${totalCaptureSlots} views before finalizing the room.`);
       return;
     }
     setStage("processing");
@@ -752,7 +708,7 @@ export function RoomStudio() {
       const processed = await processPanoramaOnServer(capturedFrames, roomName, (update) => {
         setProcessingPhase(update.phase);
         setProcessingProgress(update.progress);
-      });
+      }, captureExtent);
       const generatedRoom: GeneratedRoomRecord = {
         id: "latest-room",
         name: roomName.trim() || "My room",
@@ -765,7 +721,9 @@ export function RoomStudio() {
         hasSourceFrames: true,
       };
       setRoom(generatedRoom);
+      framesRef.current = [];
       setFrames([]);
+      releaseThumbnails();
       try {
         await saveGeneratedRoom(generatedRoom);
       } catch {
@@ -778,7 +736,7 @@ export function RoomStudio() {
       if (processingError instanceof PanoramaUploadError && processingError.retakeSequences.length > 0) {
         const firstRetake = processingError.retakeSequences[0];
         const suggestedSlot = captureSlots[firstRetake];
-        const suggestedBand = CAPTURE_BANDS.find((band) => band.id === suggestedSlot.band);
+        const suggestedBand = captureBands.find((band) => band.id === suggestedSlot.band);
         await beginRetake(firstRetake, true);
         setError(
           `${processingError.message} ${suggestedBand?.label ?? "Room"} direction ${suggestedSlot.column + 1} is ready to retake.`,
@@ -791,7 +749,9 @@ export function RoomStudio() {
 
   const resetStudio = async () => {
     stopCamera();
+    framesRef.current = [];
     setFrames([]);
+    releaseThumbnails();
     setRoom(null);
     setStage("intro");
     setCameraMode("idle");
@@ -813,17 +773,12 @@ export function RoomStudio() {
   };
 
   const bandCompletion = useMemo(
-    () => CAPTURE_BANDS.map((band) => ({
+    () => captureBands.map((band) => ({
       ...band,
       count: frames.filter((frame) => frame.band === band.id).length,
     })),
-    [frames],
+    [frames, captureBands],
   );
-  const targetStyle = {
-    "--hold-progress": `${guidance.holdProgress * 360}deg`,
-    "--target-x": `${Math.max(-1, Math.min(1, guidance.yawError / 45)) * 34}vw`,
-    "--target-y": `${Math.max(-1, Math.min(1, guidance.pitchError / 35)) * 24}vh`,
-  } as React.CSSProperties;
 
   return (
     <div className={styles.studioShell}>
@@ -840,7 +795,7 @@ export function RoomStudio() {
               <p className={styles.kicker}><ScanLine aria-hidden="true" /> Single-room capture</p>
               <h1 id="studio-title">Scan once. Look around forever.</h1>
               <p>
-                Stand in one fixed spot and rotate through three guided sweeps. Astra3D watches the live camera and motion sensors, captures useful views automatically, and builds your 360° room.
+                Stand in one fixed spot and turn once for a quick 12-photo room scan. Choose Full scan when you also need photographed ceiling and floor views.
               </p>
 
               <label className={styles.roomNameField}>
@@ -853,6 +808,15 @@ export function RoomStudio() {
                 />
               </label>
 
+              <div className={styles.captureMode} role="group" aria-label="Scan coverage">
+                <button type="button" aria-pressed={captureExtent === "quick"} data-active={captureExtent === "quick"} onClick={() => setCaptureExtent("quick")}>
+                  <span><strong>Quick · 12 photos</strong><small>One eye-level sweep</small></span>
+                </button>
+                <button type="button" aria-pressed={captureExtent === "full"} data-active={captureExtent === "full"} onClick={() => setCaptureExtent("full")}>
+                  <span><strong>Full · 36 photos</strong><small>Eye level, ceiling and floor</small></span>
+                </button>
+              </div>
+              <p className={styles.coverageNote}>{captureExtent === "quick" ? "Quick scan shows the room around you. Unphotographed ceiling and floor areas use a soft fill." : "Full scan adds upward and downward sweeps for more ceiling and floor detail."}</p>
               <button className={styles.primaryButton} type="button" onClick={beginCapture}>
                 <Camera aria-hidden="true" /> Start room scan <ChevronRight aria-hidden="true" />
               </button>
@@ -879,7 +843,7 @@ export function RoomStudio() {
                 {Array.from({ length: CAPTURE_COLUMNS }, (_, index) => <i key={index} style={{ "--index": index } as React.CSSProperties} />)}
               </div>
               <div className={styles.blueprintStats}>
-                <span><CircleGauge aria-hidden="true" /><strong>3 bands</strong><small>upper · eye · lower</small></span>
+                <span><CircleGauge aria-hidden="true" /><strong>{totalCaptureSlots} photos</strong><small>{captureExtent === "quick" ? "one eye-level sweep" : "upper · eye · lower"}</small></span>
                 <span><Sparkles aria-hidden="true" /><strong>Laptop blend</strong><small>3072 × 1536 output</small></span>
               </div>
             </div>
@@ -887,12 +851,12 @@ export function RoomStudio() {
             <div className={styles.preflight}>
               <article><strong>01 · Pick the center</strong><p>Stand near the center and keep your feet in exactly one place.</p></article>
               <article><strong>02 · Follow the sweep</strong><p>Use portrait orientation and rotate slowly clockwise while Astra3D captures automatically.</p></article>
-              <article><strong>03 · Three simple passes</strong><p>Scan once at eye level, once tilted upward, and once tilted downward.</p></article>
+              <article><strong>03 · {captureExtent === "quick" ? "Finish in one turn" : "Three simple passes"}</strong><p>{captureExtent === "quick" ? "After 12 photos, build your room. No extra ceiling or floor passes." : "Scan once at eye level, once tilted upward, and once tilted downward."}</p></article>
             </div>
 
             <div className={styles.privacyBanner}>
               <LockKeyhole aria-hidden="true" />
-              <div><strong>Private shared laptop projects</strong><p>Completed scans and their {TOTAL_CAPTURE_SLOTS} original photos stay on this laptop so phone and desktop can open the same project. Nothing is sent to a cloud service.</p></div>
+              <div><strong>Private shared laptop projects</strong><p>Completed scans and their {totalCaptureSlots} original photos stay on this laptop so phone and desktop can open the same project. Nothing is sent to a cloud service.</p></div>
             </div>
 
             {sharedProjectsError ? <p className={styles.libraryError} role="status">{sharedProjectsError}</p> : null}
@@ -909,12 +873,18 @@ export function RoomStudio() {
         {stage === "capture" ? (
           <section className={styles.captureStage} aria-labelledby="capture-title">
             <div className={styles.captureTopbar}>
-              <button type="button" onClick={() => { stopCamera(); setStage("intro"); }}>
+              <button type="button" onClick={() => {
+                stopCamera();
+                framesRef.current = [];
+                setFrames([]);
+                releaseThumbnails();
+                setStage("intro");
+              }}>
                 <ArrowLeft aria-hidden="true" /> Exit scan
               </button>
               <div>
                 <span>Room progress</span>
-                <strong>{frames.length} / {TOTAL_CAPTURE_SLOTS}</strong>
+                <strong>{frames.length} / {totalCaptureSlots}</strong>
               </div>
               <div
                 className={styles.progressTrack}
@@ -922,9 +892,9 @@ export function RoomStudio() {
                 aria-label="Room capture progress"
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-valuenow={getCaptureProgress(frames.length)}
+                aria-valuenow={getCaptureProgress(frames.length, totalCaptureSlots)}
               >
-                <span style={{ width: `${getCaptureProgress(frames.length)}%` }} />
+                <span style={{ width: `${getCaptureProgress(frames.length, totalCaptureSlots)}%` }} />
               </div>
             </div>
 
@@ -946,7 +916,7 @@ export function RoomStudio() {
                     <div className={styles.fileCameraFallback}>
                       <LockKeyhole aria-hidden="true" />
                       <strong>Secure live camera required</strong>
-                      <p>This scanner never records video. After capture, the {TOTAL_CAPTURE_SLOTS} stills are sent through phone localhost to your laptop for private processing.</p>
+                      <p>This scanner never records video. After capture, the {totalCaptureSlots} stills are sent through phone localhost to your laptop for private processing.</p>
                     </div>
                   )}
                   <div className={styles.cameraGrid} aria-hidden="true"><i /><i /></div>
@@ -994,34 +964,24 @@ export function RoomStudio() {
                     </label>
                   ) : null}
                   {cameraMode === "requesting" ? <p className={styles.cameraLoading}>Starting rear camera…</p> : null}
-                  {cameraMode === "live" && autoScanStatus === "scanning" ? (
+                  {cameraMode === "live" && autoScanStatus === "scanning" && captureMode === "automatic" ? (
+                    <LiveCaptureGuide ref={guidanceDisplayRef} direction={activeDirection + 1} bandLabel={activeBand?.label ?? "Room"} tilt={activeBand?.tilt ?? ""} />
+                  ) : null}
+                  {cameraMode === "live" && autoScanStatus === "scanning" && captureMode === "manual" ? (
                     <div className={styles.liveTargetGuide} aria-hidden="true">
                       <div className={styles.centerLock}><i /><i /><i /><i /></div>
-                      {captureMode === "automatic" ? (
-                        <div
-                          className={styles.targetMarker}
-                          data-aligned={guidance.aligned}
-                          style={targetStyle}
-                        >
-                          <span />
-                        </div>
-                      ) : null}
                     </div>
                   ) : null}
-                  {cameraMode === "live" && autoScanStatus !== "idle" ? (
+                  {cameraMode === "live" && autoScanStatus !== "idle" && !(autoScanStatus === "scanning" && captureMode === "automatic") ? (
                     <div className={styles.autoCaptureState} data-status={autoScanStatus}>
                       {autoScanStatus === "countdown" ? (
                         <><span>Starting sweep</span><strong>{countdown}</strong><small>Hold your starting direction.</small></>
                       ) : autoScanStatus === "scanning" ? (
-                        captureMode === "automatic" ? (
-                          <><span>Target {activeDirection + 1} of {CAPTURE_COLUMNS}</span><strong>{guidance.aligned ? "Hold steady" : "Move the ring into the center"}</strong><small>{guidance.aligned ? "Capturing automatically…" : `${activeBand?.label} · ${activeBand?.tilt}`}</small></>
-                        ) : (
                           <><span>{retakeSequence === null ? "Manual target capture" : "Retake selected angle"}</span><strong>Align the center frame</strong><small>Tap the shutter only when this view looks right.</small></>
-                        )
                       ) : autoScanStatus === "between" ? (
                         <><span>Sweep complete</span><strong>{activeBand?.label} is next</strong><small>{activeBand?.instruction}</small></>
                       ) : autoScanStatus === "complete" ? (
-                        <><span>Coverage complete</span><strong>Ready to build</strong><small>All three room sweeps are captured.</small></>
+                        <><span>Coverage complete</span><strong>Ready to build</strong><small>{captureExtent === "quick" ? "All 12 room photos are captured." : "All three room sweeps are captured."}</small></>
                       ) : null}
                     </div>
                   ) : null}
@@ -1144,7 +1104,7 @@ export function RoomStudio() {
                 {frames.length > 0 ? (
                   <div className={styles.retakeMap}>
                     <div><strong>Review & retake</strong><small>Tap any captured thumbnail.</small></div>
-                    {CAPTURE_BANDS.map((band) => (
+                    {captureBands.map((band) => (
                       <div className={styles.retakeRow} key={band.id}>
                         <span>{band.tilt}</span>
                         <div>
@@ -1158,7 +1118,7 @@ export function RoomStudio() {
                                 data-selected={retakeSequence === slot.sequence}
                                 aria-label={`Retake ${band.label} direction ${slot.column + 1}`}
                                 onClick={() => void beginRetake(slot.sequence)}
-                                style={frame ? { backgroundImage: `linear-gradient(rgba(3, 10, 19, 0.12), rgba(3, 10, 19, 0.58)), url(${frame.dataUrl})` } : undefined}
+                                style={frame ? { backgroundImage: `linear-gradient(rgba(3, 10, 19, 0.12), rgba(3, 10, 19, 0.58)), url(${frame.thumbnailUrl ?? frame.dataUrl})` } : undefined}
                               >
                                 {slot.column + 1}
                               </button>

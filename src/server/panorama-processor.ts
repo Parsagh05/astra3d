@@ -6,9 +6,10 @@ import path from "node:path";
 import sharp from "sharp";
 
 import {
-  CAPTURE_BANDS,
   CAPTURE_COLUMNS,
   TOTAL_CAPTURE_SLOTS,
+  getCaptureBands,
+  type CaptureExtent,
 } from "@/lib/capture-plan";
 import type { CaptureBandId, CaptureOrientation, PanoramaQualityReport } from "@/types/capture";
 
@@ -39,6 +40,7 @@ export type ServerPanoramaFrame = {
 };
 
 type PanoramaOptions = {
+  captureExtent?: CaptureExtent;
   width?: number;
   height?: number;
   quality?: number;
@@ -73,19 +75,21 @@ export class PanoramaProcessingError extends Error {
   }
 }
 
-function assertCapturePlan(frames: readonly ServerPanoramaFrame[]) {
-  if (frames.length !== TOTAL_CAPTURE_SLOTS) {
-    throw new Error(`Expected ${TOTAL_CAPTURE_SLOTS} capture frames.`);
+function assertCapturePlan(frames: readonly ServerPanoramaFrame[], extent: CaptureExtent) {
+  const bands = getCaptureBands(extent);
+  const total = bands.length * CAPTURE_COLUMNS;
+  if (frames.length !== total) {
+    throw new Error(`Expected ${total} capture frames.`);
   }
 
   const sequences = new Set<number>();
   for (const frame of frames) {
-    const expectedBand = CAPTURE_BANDS[Math.floor(frame.sequence / CAPTURE_COLUMNS)]?.id;
+    const expectedBand = bands[Math.floor(frame.sequence / CAPTURE_COLUMNS)]?.id;
     const expectedColumn = frame.sequence % CAPTURE_COLUMNS;
     if (
       !Number.isInteger(frame.sequence) ||
       frame.sequence < 0 ||
-      frame.sequence >= TOTAL_CAPTURE_SLOTS ||
+      frame.sequence >= total ||
       frame.band !== expectedBand ||
       frame.column !== expectedColumn ||
       sequences.has(frame.sequence)
@@ -178,7 +182,8 @@ export async function processRoomPanorama(
   frames: readonly ServerPanoramaFrame[],
   options: PanoramaOptions = {},
 ): Promise<ServerPanoramaResult> {
-  assertCapturePlan(frames);
+  const captureExtent = options.captureExtent ?? "full";
+  assertCapturePlan(frames, captureExtent);
 
   const width = options.width ?? await chooseOutputWidth(frames);
   const height = options.height ?? width / 2;
@@ -239,6 +244,7 @@ export async function processRoomPanorama(
       "--height", String(height),
       "--quality", String(Math.max(70, Math.min(96, quality))),
       "--columns", String(CAPTURE_COLUMNS),
+      "--capture-mode", captureExtent,
       "--zoom", String(frames.reduce((sum, frame) => sum + (frame.zoom ?? 1), 0) / frames.length),
     ];
 

@@ -16,7 +16,10 @@ export type CaptureOrientation = {
 };
 
 export type CapturedFrame = CaptureSlot & {
-  dataUrl: string;
+  /** Legacy encoded stills remain accepted; new captures upload the Blob directly. */
+  dataUrl?: string;
+  image?: Blob;
+  thumbnailUrl?: string;
   capturedAt: number;
   /** Optical or preview zoom used for this view. */
   zoom: number;
@@ -32,6 +35,7 @@ export type PanoramaQualityReport = {
   matchedPairs: number;
   fallbackPairs: number;
   coverage: number;
+  coverageScope?: "eye-level ring" | "three bands";
   retakeSequences: number[];
   warnings: string[];
 };

@@ -4,15 +4,16 @@ import sharp from "sharp";
 
 import { CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
 
-async function dispatchOrientation(page: Page, alpha: number, beta: number) {
-  await page.evaluate(({ heading, tilt }) => {
+async function dispatchOrientation(page: Page, alpha: number, beta: number, gamma = 0) {
+  await page.evaluate(({ heading, tilt, roll }) => {
     const event = new Event("deviceorientation");
     Object.defineProperties(event, {
       alpha: { value: heading },
       beta: { value: tilt },
+      gamma: { value: roll },
     });
     window.dispatchEvent(event);
-  }, { heading: alpha, tilt: beta });
+  }, { heading: alpha, tilt: beta, roll: gamma });
 }
 
 async function beginGuidedBand(page: Page, buttonName: string, beta: number) {
@@ -29,10 +30,13 @@ async function holdTarget(page: Page, alpha: number, beta: number) {
   }
 }
 
-async function completeGuidedBand(page: Page, beta: number, startingTotal: number) {
+async function completeGuidedBand(page: Page, beta: number, startingTotal: number, total = TOTAL_CAPTURE_SLOTS) {
   for (let index = 0; index < CAPTURE_COLUMNS; index += 1) {
     await holdTarget(page, index * (360 / CAPTURE_COLUMNS), beta);
-    await expect(page.getByText(`${startingTotal + index + 1} / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+    // The per-band counter renders "N / 12 views", so match the room progress exactly.
+    await expect(
+      page.getByText(`${startingTotal + index + 1} / ${total}`, { exact: true }),
+    ).toBeVisible();
   }
 }
 
@@ -102,7 +106,7 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await expect(page.getByText("Secure live camera required")).toBeVisible();
   await expect(page.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
-  await expect(page.getByText(`0 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await expect(page.getByText(`0 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
 
   const dialGeometry = await page
     .locator('[aria-label="Current rotation coverage"] > div')
@@ -235,6 +239,7 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   });
 
   await page.goto("/studio/");
+  await page.getByRole("button", { name: /^Full/ }).click();
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await expect(page.getByRole("button", { name: "Begin eye-level capture" })).toBeVisible();
 
@@ -243,15 +248,56 @@ test("captures live still targets and requires all three tilt bands", async ({ p
   await expect(page.getByRole("button", { name: "Begin +35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, CAPTURE_COLUMNS);
+  await beginGuidedBand(page, "Begin +35° capture", 125);
+  await completeGuidedBand(page, 125, CAPTURE_COLUMNS);
   await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, CAPTURE_COLUMNS * 2);
+  await beginGuidedBand(page, "Begin −35° capture", 55);
+  await completeGuidedBand(page, 55, CAPTURE_COLUMNS * 2);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
+});
+
+test("automatically captures with hand tremor but waits during a moving sweep", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 900 });
+    Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 1200 });
+    HTMLMediaElement.prototype.play = async () => undefined;
+    CanvasRenderingContext2D.prototype.drawImage = () => undefined;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => new MediaStream() },
+    });
+  });
+  await page.goto("/studio/");
+  await page.getByRole("button", { name: /Start room scan/i }).click();
+  await expect(page.getByRole("button", { name: "Begin eye-level capture" })).toBeVisible();
+  await beginGuidedBand(page, "Begin eye-level capture", 90);
+
+  await page.evaluate(async () => {
+    for (let sample = 0; sample < 35; sample++) {
+      window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", {
+        alpha: sample * 0.6, beta: 90, gamma: 0,
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  });
+  await expect(page.getByText(`0 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
+
+  // Near upright, alpha and gamma can swing in opposite directions even when
+  // the rear lens barely moves. Add real small hand tremors on top of that.
+  await page.evaluate(async () => {
+    for (let sample = 0; sample < 55; sample++) {
+      const swing = 30 * Math.sin(sample * 0.4);
+      const tremor = 1.2 * Math.sin(sample * 0.8);
+      window.dispatchEvent(new DeviceOrientationEvent("deviceorientation", {
+        alpha: (swing + tremor + 360) % 360, beta: 90, gamma: -swing,
+      }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  });
+  await expect(page.getByText(`1 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
 });
 
 test("switches to manual capture, zooms the saved crop, and retakes any captured angle", async ({ page }) => {
@@ -268,7 +314,7 @@ test("switches to manual capture, zooms the saved crop, and retakes any captured
     Object.defineProperty(CanvasRenderingContext2D.prototype, "drawImage", {
       configurable: true,
       value: (...args: unknown[]) => {
-        (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth = Number(args[3]);
+        if (args[0] instanceof HTMLVideoElement) (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth = Number(args[3]);
       },
     });
     Object.defineProperty(navigator, "mediaDevices", {
@@ -289,16 +335,16 @@ test("switches to manual capture, zooms the saved crop, and retakes any captured
 
   await page.getByRole("button", { name: "Begin eye-level capture" }).click();
   await page.getByRole("button", { name: "Capture target 1" }).click();
-  await expect(page.getByText(`1 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await expect(page.getByText(`1 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __captureSourceWidth: number }).__captureSourceWidth)).toBeCloseTo(750, 0);
 
   await page.getByRole("button", { name: "Capture target 2" }).click();
-  await expect(page.getByText(`2 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await expect(page.getByText(`2 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Retake Eye level direction 1", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retake direction 1", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Retake direction 1", exact: true }).click();
 
-  await expect(page.getByText(`2 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await expect(page.getByText(`2 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Capture target 3" })).toBeVisible();
   await page.getByRole("button", { name: "Retake previous captured view" }).click();
   await expect(page.getByRole("button", { name: "Retake direction 2", exact: true })).toBeVisible();
@@ -372,11 +418,17 @@ test("uses real 0.6x hardware zoom and exposes an available ultrawide lens", asy
   await expect(lensPicker).toBeDisabled();
 });
 
-test("processes every guided still on the laptop and returns a generated room", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "desktop-chrome", "Full assembly is covered once to keep the mobile suite fast.");
+test("finishes a quick room after exactly 12 photos without extra exposures", async ({ page }) => {
   test.setTimeout(95_000);
 
   await page.addInitScript(() => {
+    const created: string[] = [];
+    const revoked: string[] = [];
+    const createUrl = URL.createObjectURL.bind(URL);
+    const revokeUrl = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => { const url = createUrl(blob); created.push(url); return url; };
+    URL.revokeObjectURL = (url) => { revoked.push(url); revokeUrl(url); };
+    Object.assign(window, { __captureUrls: { created, revoked } });
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", { configurable: true, get: () => 900 });
     Object.defineProperty(HTMLVideoElement.prototype, "videoHeight", { configurable: true, get: () => 1200 });
     HTMLMediaElement.prototype.play = async () => undefined;
@@ -387,6 +439,8 @@ test("processes every guided still on the laptop and returns a generated room", 
     });
   });
 
+  let uploadedFields: string[] = [];
+  let uploadedMode: FormDataEntryValue | null = null;
   const mockedPanorama = await sharp({
     create: {
       width: 64,
@@ -400,6 +454,13 @@ test("processes every guided still on the laptop and returns a generated room", 
       await route.continue();
       return;
     }
+    const form = await new Request("http://localhost/api/panorama", {
+      method: "POST",
+      headers: { "content-type": route.request().headers()["content-type"] },
+      body: new Uint8Array(route.request().postDataBuffer()!),
+    }).formData();
+    uploadedFields = [...form.keys()];
+    uploadedMode = form.get("capture-mode");
     await route.fulfill({
       status: 200,
       contentType: "image/jpeg",
@@ -407,13 +468,14 @@ test("processes every guided still on the laptop and returns a generated room", 
       headers: {
         "X-Astra3D-Alignment": "0.875",
         "X-Astra3D-Coverage": "0.98",
-        "X-Astra3D-Fallback-Pairs": "3",
-        "X-Astra3D-Matched-Pairs": "21",
+        "X-Astra3D-Coverage-Scope": "eye-level ring",
+        "X-Astra3D-Fallback-Pairs": "0",
+        "X-Astra3D-Matched-Pairs": "12",
         "X-Astra3D-Method": "opencv-sift-spherical-v3",
         "X-Astra3D-Processor": "laptop-opencv",
         "X-Astra3D-Project-Id": "11111111-1111-4111-8111-111111111111",
         "X-Astra3D-Retakes": "",
-        "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(["Three overlaps used guided placement."])),
+        "X-Astra3D-Warnings": encodeURIComponent(JSON.stringify(["Quick scan: ceiling and floor are soft-filled, not photographed."])),
       },
     });
   });
@@ -423,11 +485,10 @@ test("processes every guided still on the laptop and returns a generated room", 
   await page.getByRole("button", { name: /Start room scan/i }).click();
 
   await beginGuidedBand(page, "Begin eye-level capture", 90);
-  await completeGuidedBand(page, 90, 0);
-  await beginGuidedBand(page, "Begin +35° capture", 55);
-  await completeGuidedBand(page, 55, CAPTURE_COLUMNS);
-  await beginGuidedBand(page, "Begin −35° capture", 125);
-  await completeGuidedBand(page, 125, CAPTURE_COLUMNS * 2);
+  await completeGuidedBand(page, 90, 0, CAPTURE_COLUMNS);
+  await expect(page.getByText("All 12 room photos are captured.")).toBeVisible();
+  const thumbnailUrls = await page.evaluate(() => (window as unknown as { __captureUrls: { created: string[] } }).__captureUrls.created);
+  expect(thumbnailUrls).toHaveLength(12);
 
   const processingResponse = page.waitForResponse((response) =>
     response.url().endsWith("/api/panorama") && response.request().method() === "POST",
@@ -435,13 +496,19 @@ test("processes every guided still on the laptop and returns a generated room", 
   await page.getByRole("button", { name: /Build my 360/i }).click();
   const response = await processingResponse;
   expect(response.status()).toBe(200);
+  expect(uploadedMode).toBe("quick");
+  expect(uploadedFields.filter((key) => key.startsWith("frame-"))).toHaveLength(12);
+  expect(uploadedFields.some((key) => key.startsWith("bracket-"))).toBe(false);
   expect(response.headers()["x-astra3d-processor"]).toBe("laptop-opencv");
   await expect(page.getByRole("heading", { name: "Test living room" })).toBeVisible({ timeout: 30_000 });
+  const revokedUrls = await page.evaluate(() => (window as unknown as { __captureUrls: { revoked: string[] } }).__captureUrls.revoked);
+  expect(revokedUrls).toEqual(expect.arrayContaining(thumbnailUrls));
   await expect(page.locator('[data-panorama-ready="true"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /Download 360 JPG/i })).toBeEnabled();
   await expect(page.getByText("Feature-aligned result")).toBeVisible();
-  await expect(page.getByText(`21 / ${TOTAL_CAPTURE_SLOTS}`)).toBeVisible();
+  await expect(page.getByText("Eye-level coverage", { exact: true })).toBeVisible();
+  await expect(page.getByText(`12 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
   await expect(page.getByText("88%")).toBeVisible();
   await expect(page.getByText("98%")).toBeVisible();
-  await expect(page.getByText(`Shared on laptop · ${TOTAL_CAPTURE_SLOTS} source photos saved`)).toBeVisible();
+  await expect(page.getByText(`Shared on laptop · ${CAPTURE_COLUMNS} source photos saved`)).toBeVisible();
 });
