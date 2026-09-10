@@ -44,6 +44,13 @@ vi.mock("next/dynamic", () => ({
     },
 }));
 
+/**
+ * Route-handler tests run under the node environment, where jsdom globals do not
+ * exist. Everything below touches the DOM, so it only applies when one is present.
+ */
+const hasDom = typeof window !== "undefined";
+
+if (hasDom) {
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   writable: true,
@@ -110,10 +117,13 @@ Object.defineProperty(Element.prototype, "scrollIntoView", {
   configurable: true,
   value: vi.fn(),
 });
+}
 
 afterEach(() => {
-  cleanup();
+  if (hasDom) {
+    cleanup();
+    document.body.style.overflow = "";
+    window.location.hash = "";
+  }
   resetMediaQueryMatches();
-  document.body.style.overflow = "";
-  window.location.hash = "";
 });

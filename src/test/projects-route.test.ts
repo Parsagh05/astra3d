@@ -1,3 +1,6 @@
+// @vitest-environment node
+// These route handlers run on the Node runtime, and jsdom's Request.formData()
+// never settles, so the suite must not run under the default jsdom environment.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const project = {
