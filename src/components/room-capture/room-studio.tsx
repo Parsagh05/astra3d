@@ -518,11 +518,7 @@ export function RoomStudio() {
       if (orientation.baselinePitch === null) orientation.baselinePitch = pose.pitch;
 
       const yawTarget = bandCaptureCountRef.current * (360 / CAPTURE_COLUMNS);
-      const pitchTarget = activeBandIndexRef.current === 1
-        ? 35
-        : activeBandIndexRef.current === 2
-          ? -35
-          : 0;
+      const pitchTarget = captureBands[activeBandIndexRef.current]?.pitch ?? 0;
       const result = updateCaptureGuidance(guidanceRef.current, {
         time: performance.now(),
         yaw: Math.abs(orientation.accumulated),
@@ -538,7 +534,7 @@ export function RoomStudio() {
 
     window.addEventListener("deviceorientation", handleOrientation, true);
     return () => window.removeEventListener("deviceorientation", handleOrientation, true);
-  }, [captureAutomaticFrame]);
+  }, [captureAutomaticFrame, captureBands]);
 
   const startAutomaticSweep = async () => {
     if (cameraMode !== "live" || captureComplete) return;

@@ -41,7 +41,15 @@ class StageTimer:
 
 
 CAPTURE_COLUMNS = 12
-BANDS = (("middle", 0.0), ("upper", 35.0), ("lower", -35.0))
+# A frame reaches pitch +/- vFOV/2, so the tilt decides how much ceiling and
+# floor a sweep photographs.  At the former 35 each pole kept a 21 degree cap
+# that no photograph covered, which fill_polar_holes smoothed from the nearest
+# ring.  50 closes that cap on a typical 4:3 phone and an ultrawide and cuts it
+# to 6 degrees on the narrowest 3:4 crop, without giving up the cross-band
+# overlap that register_band_against_middle needs.  Must match
+# BAND_TILT_DEGREES in src/lib/capture-plan.ts.
+BAND_TILT = 50.0
+BANDS = (("middle", 0.0), ("upper", BAND_TILT), ("lower", -BAND_TILT))
 MIN_PAIR_INLIERS = 9
 # LightGlue matches are mutual and score-filtered, so fewer suffice.
 MIN_LEARNED_INLIERS = 6

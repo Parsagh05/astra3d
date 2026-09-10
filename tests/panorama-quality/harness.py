@@ -29,6 +29,8 @@ import numpy as np
 
 BANDS = ("middle", "upper", "lower")
 CAPTURE_COLUMNS = 12
+# Must track BANDS in scripts/panorama-stitcher.py.
+BAND_TILT = 50.0
 TOTAL_SLOTS = CAPTURE_COLUMNS * len(BANDS)
 FRAME_WIDTH = 900
 HFOV = 72.0
@@ -125,14 +127,14 @@ def ground_truth_poses(perturb: bool, roll: float = 0.0, seed: int = 7):
 
     The perturbed variant models what phone captures really look like: each
     tilted sweep starts at a different heading than the eye-level one, the
-    tilt is not exactly +/-35 degrees, and every frame carries hand shake.
+    tilt is not exactly the nominal band tilt, and every frame carries hand shake.
     """
     rng = np.random.default_rng(seed)
     band_yaw_offset = {"middle": 0.0, "upper": 7.0 if perturb else 0.0, "lower": -5.0 if perturb else 0.0}
     band_pitch = {
         "middle": 0.0,
-        "upper": 32.0 if perturb else 35.0,
-        "lower": -38.0 if perturb else -35.0,
+        "upper": BAND_TILT - 3.0 if perturb else BAND_TILT,
+        "lower": -BAND_TILT - 3.0 if perturb else -BAND_TILT,
     }
     poses = {}
     for band_index, band in enumerate(BANDS):

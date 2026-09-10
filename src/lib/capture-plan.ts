@@ -7,29 +7,53 @@ import type { CaptureBandId, CaptureSlot } from "@/types/capture";
  * under 25% and too thin to align across a plain wall.
  */
 export const CAPTURE_COLUMNS = 12;
+
+/**
+ * Tilt of the two outer sweeps, in degrees.
+ *
+ * A frame reaches `pitch + vFOV/2`, so the tilt decides how much ceiling and
+ * floor a sweep photographs.  The former 35° left a 21° cap at each pole that
+ * no photograph ever covered; it was smoothly filled from the nearest ring,
+ * which reads as a smear in any room whose ceiling or floor carries detail.
+ *
+ * 50° closes that cap entirely on a typical 4:3 phone and an ultrawide, and
+ * cuts it to 6° on the narrowest 3:4 crop.  Tilting further would close the
+ * last 6° but costs cross-band overlap, which is what the eye-level ring is
+ * matched against: measured on a bare-walled room with no learned matcher,
+ * 50° already drops aligned pairs from 24/36 to 19/36, and 58° would leave
+ * only 14% overlap there.  On a normally textured room 50° still aligns
+ * 36/36 with no guided placement at all.
+ */
+export const BAND_TILT_DEGREES = 50;
+
 export const CAPTURE_BANDS: readonly {
   id: CaptureBandId;
   label: string;
   instruction: string;
+  /** Camera pitch for this sweep, in degrees, positive toward the ceiling. */
+  pitch: number;
   tilt: string;
 }[] = [
   {
     id: "middle",
     label: "Eye level",
     instruction: "Keep the phone upright and point straight ahead.",
+    pitch: 0,
     tilt: "0°",
   },
   {
     id: "upper",
     label: "Upper room",
-    instruction: "Tilt upward about 35° while keeping the same standing point.",
-    tilt: "+35°",
+    instruction: `Tilt upward about ${BAND_TILT_DEGREES}° while keeping the same standing point.`,
+    pitch: BAND_TILT_DEGREES,
+    tilt: `+${BAND_TILT_DEGREES}°`,
   },
   {
     id: "lower",
     label: "Lower room",
-    instruction: "Tilt downward about 35° without moving from the center.",
-    tilt: "−35°",
+    instruction: `Tilt downward about ${BAND_TILT_DEGREES}° without moving from the center.`,
+    pitch: -BAND_TILT_DEGREES,
+    tilt: `−${BAND_TILT_DEGREES}°`,
   },
 ] as const;
 

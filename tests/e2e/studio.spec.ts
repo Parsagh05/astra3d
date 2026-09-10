@@ -2,7 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import sharp from "sharp";
 
-import { CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+import { BAND_TILT_DEGREES, CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+
+// The phone reports beta 90 when held upright; tilting moves it either side.
+const UPPER_BETA = 90 + BAND_TILT_DEGREES;
+const LOWER_BETA = 90 - BAND_TILT_DEGREES;
+const UPPER_BAND_LABEL = `Begin +${BAND_TILT_DEGREES}° capture`;
+const LOWER_BAND_LABEL = `Begin −${BAND_TILT_DEGREES}° capture`;
 
 async function dispatchOrientation(page: Page, alpha: number, beta: number, gamma = 0) {
   await page.evaluate(({ heading, tilt, roll }) => {
@@ -245,16 +251,16 @@ test("captures live still targets and requires all three tilt bands", async ({ p
 
   await beginGuidedBand(page, "Begin eye-level capture", 90);
   await completeGuidedBand(page, 90, 0);
-  await expect(page.getByRole("button", { name: "Begin +35° capture" })).toBeVisible();
+  await expect(page.getByRole("button", { name: UPPER_BAND_LABEL })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin +35° capture", 125);
-  await completeGuidedBand(page, 125, CAPTURE_COLUMNS);
-  await expect(page.getByRole("button", { name: "Begin −35° capture" })).toBeVisible();
+  await beginGuidedBand(page, UPPER_BAND_LABEL, UPPER_BETA);
+  await completeGuidedBand(page, UPPER_BETA, CAPTURE_COLUMNS);
+  await expect(page.getByRole("button", { name: LOWER_BAND_LABEL })).toBeVisible();
   await expect(page.getByRole("button", { name: /Build my 360/i })).toHaveCount(0);
 
-  await beginGuidedBand(page, "Begin −35° capture", 55);
-  await completeGuidedBand(page, 55, CAPTURE_COLUMNS * 2);
+  await beginGuidedBand(page, LOWER_BAND_LABEL, LOWER_BETA);
+  await completeGuidedBand(page, LOWER_BETA, CAPTURE_COLUMNS * 2);
   await expect(page.getByRole("button", { name: /Build my 360/i })).toBeVisible();
   await expect(page.getByText("All three room sweeps are captured.")).toBeVisible();
 });
