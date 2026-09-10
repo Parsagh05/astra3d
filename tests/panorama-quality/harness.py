@@ -41,6 +41,22 @@ BRIGHT_GAIN = 1.7
 DARK_GAIN = 0.4
 
 
+def apply_vignette(frame: np.ndarray, strength: float) -> np.ndarray:
+    """Darkens the frame toward its corners the way a phone lens does.
+
+    Real lenses fall off roughly as cos^4 of the angle from the optical axis.
+    The stitched panorama shows this as a repeating dark band wherever one
+    frame's edge meets the next frame's centre, so the harness needs to be
+    able to reproduce it before a correction can be shown to remove it.
+    """
+    height, width = frame.shape[:2]
+    ys = (np.arange(height, dtype=np.float32) - (height - 1) / 2) / (height / 2)
+    xs = (np.arange(width, dtype=np.float32) - (width - 1) / 2) / (width / 2)
+    radius = np.sqrt(xs[None, :] ** 2 + ys[:, None] ** 2) / math.sqrt(2.0)
+    gain = 1.0 - strength * radius ** 2
+    return np.clip(frame.astype(np.float32) * gain[:, :, None], 0, 255).astype(np.uint8)
+
+
 def camera_basis(yaw_deg: float, pitch_deg: float, roll_deg: float):
     """World-frame camera basis, with world x east, y north, z up.
 
@@ -195,6 +211,7 @@ def run_case(
     wall_strength: float = 0.97,
     uneven: float = 0.0,
     noise: float = 0.0,
+    vignette: float = 0.0,
     matcher: str = "auto",
     lens_fov: float = HFOV,
     measure_lens: bool = False,
@@ -232,6 +249,8 @@ def run_case(
         orientations = {}
         for sequence, (yaw, pitch, frame_roll) in poses.items():
             frame = render_frame(source, yaw, pitch, frame_roll, frame_width, frame_height, lens_fov)
+            if vignette:
+                frame = apply_vignette(frame, vignette)
             if noise:
                 frame = np.clip(
                     frame.astype(np.float32) + grain.normal(0, noise, frame.shape), 0, 255,
@@ -364,6 +383,7 @@ def main() -> None:
     parser.add_argument("--wall-strength", type=float, default=0.97)
     parser.add_argument("--uneven", type=float, default=0.0)
     parser.add_argument("--noise", type=float, default=0.0)
+    parser.add_argument("--vignette", type=float, default=0.0)
     parser.add_argument("--matcher", choices=["auto", "sift"], default="auto")
     parser.add_argument("--frame-width", type=int, default=FRAME_WIDTH)
     parser.add_argument("--width", type=int, default=1536)
@@ -382,6 +402,7 @@ def main() -> None:
         wall_strength=args.wall_strength,
         uneven=args.uneven,
         noise=args.noise,
+        vignette=args.vignette,
         matcher=args.matcher,
         frame_width=args.frame_width,
         output_width=args.width,
