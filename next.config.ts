@@ -1,20 +1,28 @@
 import type { NextConfig } from "next";
-import { networkInterfaces } from "node:os";
 
 /**
  * Next blocks cross-origin dev requests by default, which 403s every
  * /_next/static chunk when a phone opens the studio over the LAN address.
- * The page then renders but never hydrates, so the capture button does
- * nothing. Trusting this machine's own LAN addresses keeps phone testing
- * working without pinning an address that changes with the network.
+ * The page then renders but never hydrates, so the capture button and the
+ * 12/36 photo toggle do nothing (native links still work, since they need
+ * no JavaScript — which is exactly how the bug shows up on a phone).
+ *
+ * `next dev` runs inside Docker, so the server only ever sees the container's
+ * internal address (e.g. 172.18.0.2) and never the host's real LAN IP that
+ * the phone connects to — so we cannot detect the address to trust. Instead
+ * we trust the private IPv4 ranges plus .local mDNS names: phone testing then
+ * works on any network without pinning an address that changes, while public
+ * origins stay blocked.
  */
-const lanDevOrigins = Object.values(networkInterfaces())
-  .flatMap((addresses) => addresses ?? [])
-  .filter((address) => address.family === "IPv4" && !address.internal)
-  .map((address) => address.address);
-
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["127.0.0.1", "localhost", ...lanDevOrigins],
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "10.*.*.*",
+    "172.*.*.*",
+    "192.168.*.*",
+    "*.local",
+  ],
   turbopack: {
     root: process.cwd(),
   },

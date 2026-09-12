@@ -250,7 +250,7 @@ export function RoomStudio() {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
       setCameraMode("denied");
-      setError("Live scanning needs HTTPS or localhost. Open this page through a secure phone connection to use the in-app camera.");
+      setError("Camera access is blocked because this LAN address uses HTTP. Open the studio over HTTPS, or use http://localhost:3000 through an Android USB reverse connection.");
       return false;
     }
 
@@ -912,7 +912,7 @@ export function RoomStudio() {
                     <div className={styles.fileCameraFallback}>
                       <LockKeyhole aria-hidden="true" />
                       <strong>Secure live camera required</strong>
-                      <p>This scanner never records video. After capture, the {totalCaptureSlots} stills are sent through phone localhost to your laptop for private processing.</p>
+                      <p>This scanner never records video. After capture, the {totalCaptureSlots} stills are sent over your private local connection to the laptop running this page for processing.</p>
                     </div>
                   )}
                   <div className={styles.cameraGrid} aria-hidden="true"><i /><i /></div>

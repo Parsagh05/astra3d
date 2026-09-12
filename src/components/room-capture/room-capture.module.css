@@ -156,6 +156,7 @@
   border-radius: 999px;
   cursor: pointer;
   font-weight: 750;
+  touch-action: manipulation;
 }
 
 .primaryButton,
@@ -1326,6 +1327,7 @@
   grid-template-columns: 1.4rem minmax(0, 1fr);
   gap: 0.45rem;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .captureMode button[data-active="true"] {
@@ -1658,7 +1660,7 @@
   background: #030914;
   box-shadow: 0 35px 100px rgba(0, 0, 0, 0.38);
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .generatedViewport:active {
