@@ -183,7 +183,7 @@
   background: #07101d;
   cursor: grab;
   outline: 0;
-  touch-action: none;
+  touch-action: pan-y;
   user-select: none;
 }
 
@@ -1020,7 +1020,7 @@
     linear-gradient(145deg, rgba(20, 39, 64, 0.78), rgba(5, 14, 26, 0.9));
   cursor: grab;
   outline: 0;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .productStage:active {

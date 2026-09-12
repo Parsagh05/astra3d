@@ -12,14 +12,15 @@ RUN pip install --no-cache-dir -r requirements-panorama.txt
 # ============================================
 # Stage 2: Base - Node.js + Python runtime
 # ============================================
-FROM node:20-alpine AS base
+FROM node:20-bookworm-slim AS base
 
 # Install Python for panorama processing
-RUN apk add --no-cache python3 py3-pip
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-pip && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies from Stage 1
-COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=python-deps /usr/local/bin /usr/local/bin
+COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/dist-packages
 
 WORKDIR /app
 
