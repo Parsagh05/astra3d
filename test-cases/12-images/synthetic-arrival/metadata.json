@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "name": "synthetic-arrival",
+  "extent": "quick",
+  "imageCount": 12,
+  "createdAt": "2026-09-24T15:34:20Z",
+  "source": "synthetic:arrival-2048.webp",
+  "frames": [
+    {
+      "sequence": 0,
+      "band": "middle",
+      "column": 0,
+      "file": "01.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 359.375,
+        "beta": 91.986,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 1,
+      "band": "middle",
+      "column": 1,
+      "file": "02.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 328.132,
+        "beta": 87.526,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 2,
+      "band": "middle",
+      "column": 2,
+      "file": "03.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 300.985,
+        "beta": 88.892,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 3,
+      "band": "middle",
+      "column": 3,
+      "file": "04.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 269.733,
+        "beta": 92.478,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 4,
+      "band": "middle",
+      "column": 4,
+      "file": "05.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 241.423,
+        "beta": 88.301,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 5,
+      "band": "middle",
+      "column": 5,
+      "file": "06.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 209.926,
+        "beta": 89.831,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 6,
+      "band": "middle",
+      "column": 6,
+      "file": "07.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 180.016,
+        "beta": 88.738,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 7,
+      "band": "middle",
+      "column": 7,
+      "file": "08.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 151.497,
+        "beta": 89.348,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 8,
+      "band": "middle",
+      "column": 8,
+      "file": "09.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 121.162,
+        "beta": 91.902,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 9,
+      "band": "middle",
+      "column": 9,
+      "file": "10.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 88.791,
+        "beta": 87.957,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 10,
+      "band": "middle",
+      "column": 10,
+      "file": "11.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 60.694,
+        "beta": 90.491,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 11,
+      "band": "middle",
+      "column": 11,
+      "file": "12.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 31.749,
+        "beta": 91.582,
+        "gamma": 0
+      }
+    }
+  ]
+}

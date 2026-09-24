@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { TOTAL_CAPTURE_SLOTS } from "@/lib/capture-plan";
+import { CAPTURE_COLUMNS, TOTAL_CAPTURE_SLOTS, type CaptureExtent } from "@/lib/capture-plan";
 import type { ServerPanoramaFrame } from "@/server/panorama-processor";
 import type { PanoramaQualityReport, SharedRoomProject } from "@/types/capture";
 
@@ -205,6 +205,52 @@ export async function readProjectPanorama(projectId: string) {
       project: publicProject(manifest),
       panorama: await readFile(path.join(directory, PANORAMA_FILE)),
     };
+  } catch {
+    return null;
+  }
+}
+
+function mimeForFile(file: string): ServerPanoramaFrame["mimeType"] {
+  if (file.endsWith(".png")) return "image/png";
+  if (file.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+}
+
+/**
+ * Loads a saved project's original photos exactly as they were uploaded, so
+ * a capture from any earlier session can be re-run through today's stitcher.
+ */
+export async function readProjectSource(projectId: string) {
+  const directory = projectDirectory(projectId);
+  if (!directory) return null;
+  const manifest = await readManifest(directory);
+  if (!manifest || manifest.id !== projectId || !manifest.hasSourceFrames) return null;
+  const extent: CaptureExtent | null = manifest.sourceFrames.length === CAPTURE_COLUMNS
+    ? "quick"
+    : manifest.sourceFrames.length === TOTAL_CAPTURE_SLOTS ? "full" : null;
+  if (!extent) return null;
+  // Manifests only ever name files directly inside frames/.
+  const resolveFrame = (file: string) => {
+    const name = path.basename(file);
+    if (file !== `frames/${name}`) throw new Error("Unexpected project frame path.");
+    return path.join(directory, "frames", name);
+  };
+  try {
+    const frames: ServerPanoramaFrame[] = await Promise.all(
+      [...manifest.sourceFrames]
+        .sort((left, right) => left.sequence - right.sequence)
+        .map(async (frame) => ({
+          sequence: frame.sequence,
+          band: frame.band,
+          column: frame.column,
+          zoom: frame.zoom,
+          ...(frame.imu ? { imu: frame.imu } : {}),
+          image: await readFile(resolveFrame(frame.file)),
+          ...(frame.bracketFile ? { bracket: await readFile(resolveFrame(frame.bracketFile)) } : {}),
+          mimeType: mimeForFile(frame.file),
+        })),
+    );
+    return { project: publicProject(manifest), name: manifest.name, extent, frames };
   } catch {
     return null;
   }

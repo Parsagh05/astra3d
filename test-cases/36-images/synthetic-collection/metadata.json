@@ -1,0 +1,442 @@
+{
+  "version": 1,
+  "name": "synthetic-collection",
+  "extent": "full",
+  "imageCount": 36,
+  "createdAt": "2026-09-24T15:34:21Z",
+  "source": "synthetic:collection-2048.webp",
+  "frames": [
+    {
+      "sequence": 0,
+      "band": "middle",
+      "column": 0,
+      "file": "01.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 1.857,
+        "beta": 89.996,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 1,
+      "band": "middle",
+      "column": 1,
+      "file": "02.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 327.859,
+        "beta": 87.852,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 2,
+      "band": "middle",
+      "column": 2,
+      "file": "03.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 300.655,
+        "beta": 90.057,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 3,
+      "band": "middle",
+      "column": 3,
+      "file": "04.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 268.56,
+        "beta": 90.852,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 4,
+      "band": "middle",
+      "column": 4,
+      "file": "05.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 237.595,
+        "beta": 88.523,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 5,
+      "band": "middle",
+      "column": 5,
+      "file": "06.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 209.542,
+        "beta": 88.677,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 6,
+      "band": "middle",
+      "column": 6,
+      "file": "07.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 180.165,
+        "beta": 88.886,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 7,
+      "band": "middle",
+      "column": 7,
+      "file": "08.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 151.762,
+        "beta": 90.867,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 8,
+      "band": "middle",
+      "column": 8,
+      "file": "09.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 122.335,
+        "beta": 88.504,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 9,
+      "band": "middle",
+      "column": 9,
+      "file": "10.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 89.013,
+        "beta": 89.197,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 10,
+      "band": "middle",
+      "column": 10,
+      "file": "11.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 60.201,
+        "beta": 90.955,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 11,
+      "band": "middle",
+      "column": 11,
+      "file": "12.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 29.561,
+        "beta": 89.044,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 12,
+      "band": "upper",
+      "column": 0,
+      "file": "13.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 2.377,
+        "beta": 141.696,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 13,
+      "band": "upper",
+      "column": 1,
+      "file": "14.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 331.522,
+        "beta": 137.81,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 14,
+      "band": "upper",
+      "column": 2,
+      "file": "15.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 298.474,
+        "beta": 138.451,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 15,
+      "band": "upper",
+      "column": 3,
+      "file": "16.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 268.864,
+        "beta": 139.966,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 16,
+      "band": "upper",
+      "column": 4,
+      "file": "17.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 241.209,
+        "beta": 142.392,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 17,
+      "band": "upper",
+      "column": 5,
+      "file": "18.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 210.928,
+        "beta": 141.233,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 18,
+      "band": "upper",
+      "column": 6,
+      "file": "19.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 181.275,
+        "beta": 141.726,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 19,
+      "band": "upper",
+      "column": 7,
+      "file": "20.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 149.039,
+        "beta": 141.405,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 20,
+      "band": "upper",
+      "column": 8,
+      "file": "21.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 121.782,
+        "beta": 139.716,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 21,
+      "band": "upper",
+      "column": 9,
+      "file": "22.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 92.323,
+        "beta": 139.297,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 22,
+      "band": "upper",
+      "column": 10,
+      "file": "23.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 61.278,
+        "beta": 139.286,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 23,
+      "band": "upper",
+      "column": 11,
+      "file": "24.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 31.701,
+        "beta": 139.991,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 24,
+      "band": "lower",
+      "column": 0,
+      "file": "25.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 2.307,
+        "beta": 38.076,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 25,
+      "band": "lower",
+      "column": 1,
+      "file": "26.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 329.283,
+        "beta": 39.26,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 26,
+      "band": "lower",
+      "column": 2,
+      "file": "27.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 297.937,
+        "beta": 38.078,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 27,
+      "band": "lower",
+      "column": 3,
+      "file": "28.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 267.964,
+        "beta": 41.001,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 28,
+      "band": "lower",
+      "column": 4,
+      "file": "29.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 241.78,
+        "beta": 39.825,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 29,
+      "band": "lower",
+      "column": 5,
+      "file": "30.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 208.477,
+        "beta": 41.302,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 30,
+      "band": "lower",
+      "column": 6,
+      "file": "31.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 181.811,
+        "beta": 39.452,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 31,
+      "band": "lower",
+      "column": 7,
+      "file": "32.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 149.487,
+        "beta": 38.699,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 32,
+      "band": "lower",
+      "column": 8,
+      "file": "33.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 121.048,
+        "beta": 41.494,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 33,
+      "band": "lower",
+      "column": 9,
+      "file": "34.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 89.908,
+        "beta": 38.788,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 34,
+      "band": "lower",
+      "column": 10,
+      "file": "35.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 59.754,
+        "beta": 37.644,
+        "gamma": 0
+      }
+    },
+    {
+      "sequence": 35,
+      "band": "lower",
+      "column": 11,
+      "file": "36.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 29.315,
+        "beta": 42.009,
+        "gamma": 0
+      }
+    }
+  ]
+}
