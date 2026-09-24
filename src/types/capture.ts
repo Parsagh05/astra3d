@@ -25,6 +25,11 @@ export type CapturedFrame = CaptureSlot & {
   zoom: number;
   /** Motion-sensor pose recorded with the still, when sensors were live. */
   imu?: CaptureOrientation;
+  /**
+   * Camera orientation relative to the sweep's starting heading, as an
+   * (x, y, z, w) quaternion.  Only the live photo-sphere uses it.
+   */
+  view?: [number, number, number, number];
   /** Under-exposed companion still for laptop highlight fusion. */
   bracketDataUrl?: string;
 };

@@ -736,6 +736,9 @@
 }
 
 .fileCameraFallback {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
   display: grid;
   height: 100%;
   align-content: center;
@@ -977,114 +980,146 @@
   font-size: 0.68rem;
 }
 
-.liveTargetGuide {
+.sphereStage {
   position: absolute;
-  z-index: 4;
+  z-index: 0;
   inset: 0;
   overflow: hidden;
-  pointer-events: none;
-  contain: layout paint;
+  background: radial-gradient(circle at 50% 45%, #122034, #05080d 78%);
 }
 
-.centerLock,
-.targetMarker {
+.liveWindow {
   position: absolute;
+  z-index: 1;
   top: 50%;
   left: 50%;
-  width: 4.6rem;
-  height: 4.6rem;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   transform: translate(-50%, -50%);
+  transition: width 260ms ease, height 260ms ease, border-radius 260ms ease;
 }
 
-.centerLock {
-  width: 5.6rem;
-  height: 5.6rem;
-  opacity: 0.75;
-}
-
-.centerLock i {
-  position: absolute;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-color: rgba(233, 249, 255, 0.88);
-  border-style: solid;
-}
-
-.centerLock i:nth-child(1) {
-  top: 0;
-  left: 0;
-  border-width: 2px 0 0 2px;
-  border-radius: 0.55rem 0 0;
-}
-
-.centerLock i:nth-child(2) {
-  top: 0;
-  right: 0;
-  border-width: 2px 2px 0 0;
-  border-radius: 0 0.55rem 0 0;
-}
-
-.centerLock i:nth-child(3) {
-  right: 0;
-  bottom: 0;
-  border-width: 0 2px 2px 0;
-  border-radius: 0 0 0.55rem;
-}
-
-.centerLock i:nth-child(4) {
-  bottom: 0;
-  left: 0;
-  border-width: 0 0 2px 2px;
-  border-radius: 0 0 0 0.55rem;
-}
-
-.targetMarker {
-  display: grid;
-  place-items: center;
-  border: 2px solid rgba(103, 220, 255, 0.9);
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(56, 182, 255, 0.25) 0 18%, transparent 20%),
-    rgba(5, 14, 26, 0.15);
+.sphereStage[data-sphere="true"] .liveWindow {
+  border-radius: 0.85rem;
   box-shadow:
-    0 0 0 0.4rem rgba(56, 182, 255, 0.08),
-    0 0 2rem rgba(56, 182, 255, 0.28);
-  transform:
-    translate(-50%, -50%)
-    translate(var(--target-x), var(--target-y));
-  transition:
-    transform 100ms linear,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
+    0 0 0 2px rgba(255, 255, 255, 0.82),
+    0 1.4rem 3rem rgba(0, 0, 0, 0.55);
 }
 
-.targetMarker::before {
+/* The live window shows exactly the still's crop; keep one in sync with the other. */
+.sphereStage .liveWindow video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* While guiding, one compact pill replaces the large status card. */
+.sphereStage .autoCaptureState {
+  z-index: 7;
+  bottom: 0.9rem;
+  min-width: 0;
+  padding: 0.45rem 1rem 0.5rem;
+  border-color: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(3, 8, 15, 0.78);
+  white-space: nowrap;
+}
+
+.sphereStage .autoCaptureState span {
+  color: #ffb27a;
+  font-size: 0.58rem;
+}
+
+.sphereStage .autoCaptureState strong {
+  margin-top: 0.1rem;
+  font-size: 0.92rem;
+}
+
+.reticle {
   position: absolute;
-  inset: -0.45rem;
+  z-index: 5;
+  top: 50%;
+  left: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border: 2.5px solid rgba(255, 255, 255, 0.94);
   border-radius: 50%;
-  background: conic-gradient(#63e6be var(--hold-progress), rgba(218, 241, 255, 0.12) 0);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.reticle::before {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: conic-gradient(#ff7a1a var(--hold, 0deg), transparent 0);
   content: "";
-  mask: radial-gradient(transparent 65%, #000 67%);
 }
 
-.targetMarker span {
-  width: 0.65rem;
-  height: 0.65rem;
+.reticle[data-aligned="true"] {
+  border-color: #ffd2b0;
+  transform: scale(1.08);
+}
+
+.guideDot {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
   border-radius: 50%;
-  background: var(--color-cyan-soft);
-  box-shadow: 0 0 1rem rgba(103, 220, 255, 0.9);
+  background: #ff6a13;
+  box-shadow: 0 0 0 5px rgba(255, 106, 19, 0.22), 0 4px 14px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  will-change: transform;
 }
 
-.targetMarker[data-aligned="true"] {
-  border-color: #63e6be;
-  box-shadow:
-    0 0 0 0.5rem rgba(99, 230, 190, 0.11),
-    0 0 2.5rem rgba(99, 230, 190, 0.4);
+.guideDot[data-visible="false"],
+.guideArrow[data-visible="false"] {
+  visibility: hidden;
 }
 
-.targetMarker[data-aligned="true"] span {
-  background: #a6f7df;
-  box-shadow: 0 0 1.2rem rgba(99, 230, 190, 1);
+.guideDot[data-aligned="true"] {
+  opacity: 0;
+}
+
+.guideDot[data-offscreen="true"] {
+  animation: guide-dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes guide-dot-pulse {
+  50% { box-shadow: 0 0 0 10px rgba(255, 106, 19, 0.12), 0 4px 14px rgba(0, 0, 0, 0.45); }
+}
+
+.guideArrow {
+  position: absolute;
+  z-index: 5;
+  top: -1.5px;
+  left: 0;
+  height: 0;
+  border-top: 3px dotted rgba(255, 255, 255, 0.95);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+  pointer-events: none;
+  transform-origin: 0 50%;
+  will-change: transform, width;
+}
+
+.guideArrow::after {
+  position: absolute;
+  top: -7.5px;
+  right: -4px;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 10px solid rgba(255, 255, 255, 0.95);
+  content: "";
 }
 
 .directionRing {
@@ -2053,11 +2088,6 @@
     padding: 0.65rem 0.8rem;
   }
 
-  .targetMarker {
-    width: 4rem;
-    height: 4rem;
-  }
-
   .processing {
     min-height: calc(100svh - 4.5rem);
     padding-inline: 1rem;
@@ -2097,7 +2127,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .targetMarker,
+  .reticle,
+  .liveWindow,
   .progressTrack span,
   .processingTrack span,
   .bandList i b,
@@ -2122,8 +2153,7 @@
     background-color: rgba(3, 10, 19, 0.94);
   }
 
-  .targetMarker,
-  .targetMarker[data-aligned="true"] {
-    box-shadow: none;
+  .guideArrow {
+    filter: none;
   }
 }

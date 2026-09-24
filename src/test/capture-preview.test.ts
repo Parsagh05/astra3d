@@ -18,7 +18,7 @@ it("encodes one bounded still and a small thumbnail without full-image pixel rea
   const video = document.createElement("video");
   Object.defineProperties(video, { videoWidth: { value: 3000 }, videoHeight: { value: 4000 } });
   const capture = await capturePreviewStill(video);
-  expect(dimensions).toEqual([[1080, 1440], [160, 214]]);
+  expect(dimensions).toEqual([[1080, 1440], [240, 320]]);
   expect(canvases.every((canvas) => canvas.width === 1 && canvas.height === 1)).toBe(true);
   expect(pixelRead).not.toHaveBeenCalled();
   expect(base64).not.toHaveBeenCalled();

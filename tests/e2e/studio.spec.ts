@@ -38,7 +38,8 @@ async function holdTarget(page: Page, alpha: number, beta: number) {
 
 async function completeGuidedBand(page: Page, beta: number, startingTotal: number, total = TOTAL_CAPTURE_SLOTS) {
   for (let index = 0; index < CAPTURE_COLUMNS; index += 1) {
-    await holdTarget(page, index * (360 / CAPTURE_COLUMNS), beta);
+    // Targets advance clockwise: turning right lowers the compass alpha.
+    await holdTarget(page, (360 - index * (360 / CAPTURE_COLUMNS)) % 360, beta);
     // The per-band counter renders "N / 12 views", so match the room progress exactly.
     await expect(
       page.getByText(`${startingTotal + index + 1} / ${total}`, { exact: true }),

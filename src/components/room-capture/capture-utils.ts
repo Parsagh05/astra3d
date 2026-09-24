@@ -179,7 +179,7 @@ export async function capturePreviewStill(video: HTMLVideoElement, zoom = 1): Pr
   }
   const height = Math.round(Math.min(1440, croppedSourceHeight(video.videoWidth, video.videoHeight, zoom)));
   const canvas = createCanvas(Math.round(height * STILL_ASPECT), height);
-  const thumbnail = createCanvas(160, 214);
+  const thumbnail = createCanvas(240, 320);
   try {
     drawCover(getCanvasContext(canvas), video, video.videoWidth, video.videoHeight, canvas.width, canvas.height, zoom);
     getCanvasContext(thumbnail).drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
