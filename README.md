@@ -35,22 +35,28 @@ Open `http://localhost:3000`. The room creator is at `http://localhost:3000/stud
 | `make build-dev` | Build development Docker image |
 | `make logs` | Tail development logs |
 | `make shell` | Open shell in development container |
-| `make clean` | Remove containers and volumes |
+| `make clean` | Remove containers and volumes (photos and test cases are kept) |
 | `make stop` | Stop containers |
+| `make import-volume` | Copy photos from the old `astra3d-data` Docker volume into `.astra3d-data/` |
 
 ## Project Data
 
 Completed scans are saved to `.astra3d-data/projects/<project-id>/` containing:
-- `project.json` - Project manifest
+- `project.json` - Project manifest (with the phone's motion data per photo)
 - `panorama.jpg` - The stitched panorama
 - `frames/` - Source photographs
 
-The Docker compose file mounts a named volume for persistent project data.
+Both compose files bind-mount `.astra3d-data/` and `test-cases/` from the project
+folder on your computer, so saved photos survive container restarts, rebuilds and
+`docker compose down -v`. Earlier versions kept them in a Docker volume that those
+commands could delete; run `make import-volume` once to copy anything still in it.
 
 ## Features
 
 - **Room Capture Studio** (`/studio/`): Phone-first workflow with 12 (quick) or 36 (full) photos per room
-- **IMU-guided capture**: Motion-sensor guidance with automatic still capture
+- **Photo-sphere guided capture**: a fixed white ring marks where the camera points and an orange dot marks the next target in the room. Turn right until the dot sits in the ring and hold still; the ring fills and the photo is taken. Captured photos are painted onto a gridded sphere around the live view so coverage is visible as it grows
+- **Test maker** (`/test-maker`): capture a room once with the same guidance and save it straight into `test-cases/`
+- **Tests** (`/tests`): re-run any test case, or any capture saved in `.astra3d-data/`, through the current stitcher and compare quality reports
 - **360° Panorama stitching**: SIFT alignment, exposure compensation, blending
 - **Optional ML matcher**: SuperPoint+LightGlue for low-texture rooms
 - **Interactive tours**: WebGL panorama viewer with hotspots, floor plan, navigation
@@ -76,6 +82,27 @@ The Docker compose file mounts a named volume for persistent project data.
 - Healthcheck included
 
 ## Testing
+
+### Panorama regression cases
+
+`test-cases/<group>/<case>/` holds fixed capture sets: `01.jpg … 12.jpg` (quick) or
+`01.jpg … 36.jpg` (full) plus an optional `metadata.json` with the phone's motion
+data. The group folder name is only for people (`12-images`, `36-images`, `12`, …);
+the plan comes from `metadata.json` or the photo count, and folders that fit
+neither are listed as skipped on the Tests page.
+
+- Capture new cases on a phone at `/test-maker` (saved directly, or as a ZIP to extract into `test-cases/`).
+- Keep a capture you made in the studio with **Keep** on the Tests page.
+- Render a ground-truth case from any 2:1 panorama:
+
+```bash
+python scripts/make-test-case.py --panorama public/images/tours/flagship/arrival-2048.webp \
+  --extent quick --name synthetic-arrival
+```
+
+Open `/tests` and use **Run** or **Run all** to stitch them with the current algorithm.
+
+### Automated checks
 
 ```bash
 # Run tests inside container
@@ -108,7 +135,7 @@ src/
 │   ├── tour/               Panorama viewer, hotspots
 │   ├── platform/           Marketing showcase
 │   └── room-capture/       Camera capture studio
-├── server/                 Panorama worker orchestration
+├── server/                 Panorama worker, project store, test-case store
 ├── data/                   Tour and platform content
 └── types/                  TypeScript definitions
 ```

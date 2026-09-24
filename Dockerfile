@@ -1,28 +1,36 @@
 # ============================================
-# Stage 1: Python dependencies (for panorama processing)
+# Stage 1: Node.js runtime (copied into the Python image below)
 # ============================================
-FROM python:3.11-slim AS python-deps
+FROM node:22-bookworm-slim AS node-runtime
+
+# ============================================
+# Stage 2: Base - Python + Node.js runtime
+# ============================================
+# The panorama worker is Python/OpenCV, so start from the official Python
+# image and add Node from the official Node image.  No apt mirror is needed,
+# and the packages are installed into the same interpreter that runs them.
+FROM python:3.11-slim AS base
+
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    useradd --uid 1000 --create-home --shell /bin/sh node && \
+    node --version && npm --version
+
+COPY requirements-panorama.txt /tmp/requirements-panorama.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-panorama.txt && \
+    rm /tmp/requirements-panorama.txt && \
+    python3 -c "import cv2, numpy; print('OpenCV', cv2.__version__)"
 
 WORKDIR /app
 
-COPY requirements-panorama.txt .
-
-RUN pip install --no-cache-dir -r requirements-panorama.txt
-
-# ============================================
-# Stage 2: Base - Node.js + Python runtime
-# ============================================
-FROM node:20-bookworm-slim AS base
-
-# Install Python for panorama processing
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip && \
-    rm -rf /var/lib/apt/lists/*
-
-# Copy Python dependencies from Stage 1
-COPY --from=python-deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/dist-packages
-
-WORKDIR /app
+# Captured rooms and test cases live outside the image, in folders that are
+# bind-mounted from the host (see docker-compose*.yml), so rebuilding or
+# recreating the container never deletes photos.
+ENV ASTRA3D_DATA_DIR=/app/.astra3d-data \
+    ASTRA3D_TEST_CASES_DIR=/app/test-cases \
+    NEXT_TELEMETRY_DISABLED=1
 
 # ============================================
 # Stage 3: Development
@@ -37,17 +45,11 @@ RUN npm ci
 COPY . .
 
 # Install panorama ML models (optional)
-RUN python scripts/download-panorama-models.py || true
+RUN python3 scripts/download-panorama-models.py || true
 
-# Expose port
 EXPOSE 3000
 
-# Environment
 ENV NODE_ENV=development
-ENV ASTRA3D_DATA_DIR=/app/.astra3d-data
-
-# Volume for hot reload and project data
-VOLUME ["/app/.astra3d-data"]
 
 # Start with hot reload enabled
 CMD ["npm", "run", "dev"]
@@ -57,14 +59,11 @@ CMD ["npm", "run", "dev"]
 # ============================================
 FROM base AS builder
 
-# Install Node dependencies
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code
 COPY . .
 
-# Build Next.js application
 RUN npm run build
 
 # ============================================
@@ -72,38 +71,32 @@ RUN npm run build
 # ============================================
 FROM base AS production
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+ENV NODE_ENV=production
 
-# Set working directory
-WORKDIR /app
-
-# Install production Node dependencies
 COPY package*.json ./
-RUN npm ci --production
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copy built application from builder
-COPY --from=builder /app/.next .next
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/src ./src
+COPY --from=builder /app/next.config.ts ./next.config.ts
+# The OpenCV stitcher is spawned from scripts/ at runtime.
+COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/test-cases ./test-cases
+COPY scripts/docker-entrypoint.sh /usr/local/bin/astra3d-entrypoint
 
-# Install panorama ML models
-RUN python scripts/download-panorama-models.py || true
+# Optional learned matcher for bare walls; the stitcher works without it.
+RUN python3 scripts/download-panorama-models.py || true
 
-# Create data directory with correct permissions
-RUN mkdir -p .astra3d-data && chown -R nextjs:nodejs .astra3d-data
+RUN chmod 755 /usr/local/bin/astra3d-entrypoint && \
+    mkdir -p .astra3d-data && \
+    chown -R node:node .astra3d-data test-cases .next
 
-# Expose port
 EXPOSE 3000
 
-# Environment
-ENV NODE_ENV=production
-ENV ASTRA3D_DATA_DIR=/app/.astra3d-data
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3000/api/panorama').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
-# User should be nextjs, but panorama scripts run as subprocess need python
-# So we stay as root for python access, or use node to spawn
-
-# Start production server
-USER nodejs
+# Starts as root only to make bind-mounted folders writable, then runs the
+# server as the unprivileged `node` user.
+ENTRYPOINT ["astra3d-entrypoint"]
 CMD ["npm", "run", "start"]

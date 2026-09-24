@@ -8,19 +8,12 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persist project data
-      - astra3d-data:/app/.astra3d-data
+      # Host folders, not Docker volumes: photos and test cases stay on your
+      # computer however the container is rebuilt or removed.
+      - ./.astra3d-data:/app/.astra3d-data
+      - ./test-cases:/app/test-cases
     environment:
       - NODE_ENV=production
       - ASTRA3D_DATA_DIR=/app/.astra3d-data
+      - ASTRA3D_TEST_CASES_DIR=/app/test-cases
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-volumes:
-  astra3d-data:
-    driver: local
