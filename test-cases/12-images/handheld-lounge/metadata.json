@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "name": "handheld-lounge",
+  "extent": "quick",
+  "imageCount": 12,
+  "createdAt": "2026-09-26T11:24:38Z",
+  "source": "synthetic:lounge-2048.webp:handheld",
+  "frames": [
+    {
+      "sequence": 0,
+      "band": "middle",
+      "column": 0,
+      "file": "01.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 66.939,
+        "beta": 79.569,
+        "gamma": -67.698
+      },
+      "truth": {
+        "yaw": 1.08,
+        "pitch": -3.91,
+        "roll": 9.91
+      }
+    },
+    {
+      "sequence": 1,
+      "band": "middle",
+      "column": 1,
+      "file": "02.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 17.587,
+        "beta": 78.198,
+        "gamma": -47.095
+      },
+      "truth": {
+        "yaw": 28.93,
+        "pitch": -8.58,
+        "roll": 10.3
+      }
+    },
+    {
+      "sequence": 2,
+      "band": "middle",
+      "column": 2,
+      "file": "03.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 350.995,
+        "beta": 76.774,
+        "gamma": -57.855
+      },
+      "truth": {
+        "yaw": 67.25,
+        "pitch": -7.76,
+        "roll": 12.2
+      }
+    },
+    {
+      "sequence": 3,
+      "band": "middle",
+      "column": 3,
+      "file": "04.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 316.556,
+        "beta": 74.881,
+        "gamma": -62.526
+      },
+      "truth": {
+        "yaw": 104.09,
+        "pitch": -7.42,
+        "roll": 12.8
+      }
+    },
+    {
+      "sequence": 4,
+      "band": "middle",
+      "column": 4,
+      "file": "05.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 293.792,
+        "beta": 67.448,
+        "gamma": -73.467
+      },
+      "truth": {
+        "yaw": 139.89,
+        "pitch": -6.75,
+        "roll": 22.0
+      }
+    },
+    {
+      "sequence": 5,
+      "band": "middle",
+      "column": 5,
+      "file": "06.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 250.722,
+        "beta": 74.648,
+        "gamma": -56.99
+      },
+      "truth": {
+        "yaw": 166.92,
+        "pitch": -7.27,
+        "roll": 12.19
+      }
+    },
+    {
+      "sequence": 6,
+      "band": "middle",
+      "column": 6,
+      "file": "07.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 212.173,
+        "beta": 74.807,
+        "gamma": -49.065
+      },
+      "truth": {
+        "yaw": 195.91,
+        "pitch": -8.93,
+        "roll": 11.85
+      }
+    },
+    {
+      "sequence": 7,
+      "band": "middle",
+      "column": 7,
+      "file": "08.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 177.404,
+        "beta": 75.503,
+        "gamma": -45.214
+      },
+      "truth": {
+        "yaw": 228.46,
+        "pitch": -9.99,
+        "roll": 10.68
+      }
+    },
+    {
+      "sequence": 8,
+      "band": "middle",
+      "column": 8,
+      "file": "09.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 163.782,
+        "beta": 75.033,
+        "gamma": -53.586
+      },
+      "truth": {
+        "yaw": 249.05,
+        "pitch": -8.9,
+        "roll": 10.62
+      }
+    },
+    {
+      "sequence": 9,
+      "band": "middle",
+      "column": 9,
+      "file": "10.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 132.188,
+        "beta": 78.909,
+        "gamma": -53.181
+      },
+      "truth": {
+        "yaw": 279.25,
+        "pitch": -6.13,
+        "roll": 9.43
+      }
+    },
+    {
+      "sequence": 10,
+      "band": "middle",
+      "column": 10,
+      "file": "11.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 129.783,
+        "beta": 77.259,
+        "gamma": -74.883
+      },
+      "truth": {
+        "yaw": 303.93,
+        "pitch": -3.5,
+        "roll": 12.56
+      }
+    },
+    {
+      "sequence": 11,
+      "band": "middle",
+      "column": 11,
+      "file": "12.jpg",
+      "zoom": 1,
+      "imu": {
+        "alpha": 82.733,
+        "beta": 76.187,
+        "gamma": -65.855
+      },
+      "truth": {
+        "yaw": 340.42,
+        "pitch": -5.84,
+        "roll": 11.95
+      }
+    }
+  ]
+}

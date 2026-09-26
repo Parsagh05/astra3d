@@ -57,7 +57,8 @@ commands could delete; run `make import-volume` once to copy anything still in i
 - **Photo-sphere guided capture**: a fixed white ring marks where the camera points and an orange dot marks the next target in the room. Turn right until the dot sits in the ring and hold still; the ring fills and the photo is taken. Captured photos are painted onto a gridded sphere around the live view so coverage is visible as it grows
 - **Test maker** (`/test-maker`): capture a room once with the same guidance and save it straight into `test-cases/`
 - **Tests** (`/tests`): re-run any test case, or any capture saved in `.astra3d-data/`, through the current stitcher and compare quality reports
-- **360° Panorama stitching**: SIFT alignment, exposure compensation, blending
+- **360° Panorama stitching**: every photo's full 3D rotation and the lens are solved together by bundle adjustment (sensor-guided SIFT matching, RANSAC, robust Levenberg–Marquardt), levelled by gravity from the phone's motion sensors, brightness and colour equalised in linear light, then graph-cut seams and multiband blending. The report explains how the photos were taken (uneven turns, a dipped or tilted phone, changing exposure)
+- **Consistent photos**: exposure, white balance and focus are locked after the first photo where the browser allows it, and a photo is only taken with the dot inside the ring and the phone upright
 - **Optional ML matcher**: SuperPoint+LightGlue for low-texture rooms
 - **Interactive tours**: WebGL panorama viewer with hotspots, floor plan, navigation
 - **Demo flagship**: "Astra Atelier" - 3-room fashion boutique
@@ -101,6 +102,21 @@ python scripts/make-test-case.py --panorama public/images/tours/flagship/arrival
 ```
 
 Open `/tests` and use **Run** or **Run all** to stitch them with the current algorithm.
+`handheld-lounge` reproduces a careless handheld capture: uneven turns, a
+dipped and tilted phone, and changing exposure.
+
+### Stitching benchmark
+
+`scripts/panorama-benchmark.py` renders simulated captures from known
+panoramas (steady and handheld hands, quick and full scans, with or without
+motion data), stitches them exactly as the server does and scores the result
+against the truth: PSNR/SSIM over everything photographed, the outer edges
+where cropping shows first, brightness banding, and horizon error.
+
+```bash
+python scripts/panorama-benchmark.py                        # all 12 scenarios
+python scripts/panorama-benchmark.py --profile handheld --no-imu
+```
 
 ### Automated checks
 

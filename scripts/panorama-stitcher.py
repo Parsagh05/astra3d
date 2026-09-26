@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Feature-align a guided Astra3D capture into an equirectangular panorama.
+"""Stitch a guided Astra3D capture into an equirectangular panorama.
 
-The capture plan supplies eight ordered headings at three pitch bands.  This
-worker uses that ordering as a safe prior, then refines adjacent placement with
-SIFT features.  When the phone recorded orientation samples (imu.json), they
-provide per-pair placement priors, per-frame roll correction, and fallbacks
-for low-texture overlaps.  Each tilted band is also registered vertically
-against the eye-level ring to measure its true yaw offset and pitch.  OpenCV
-handles cylindrical projection, exposure compensation, graph-cut seams, and
-multiband blending.  A JSON report is always written so the web app can
-request precise retakes instead of returning a broken image.
+Every photograph is placed on the sphere by bundle adjustment (see
+sphere_alignment.py): features are matched between all overlapping photos,
+and each photo's full 3D rotation plus the shared lens focal length are
+solved together.  When the phone recorded orientation samples (imu.json),
+gravity keeps the horizon level and pitch and sideways tilt are corrected per
+photo, and sensor headings hold photos that found no visual match.  Exposure
+and white balance are equalised in linear light from the matched points,
+then OpenCV handles block gain compensation, graph-cut seams and multiband
+blending.  A JSON report is always written so the web app can request
+precise retakes instead of returning a broken image.
 """
 
 from __future__ import annotations
@@ -25,6 +26,21 @@ from typing import Any
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sphere_alignment import (  # noqa: E402
+    FORWARD,
+    Alignment,
+    Keyframe,
+    align_capture,
+    camera_rotation,
+    detect_features,
+    heading_of,
+    heading_rotation,
+    pitch_of,
+    roll_of,
+    rotation_from_orientation,
+)
 
 
 class StageTimer:
@@ -60,6 +76,25 @@ MAX_FRAME_ROLL = 15.0
 MAX_SOURCE_WIDTH = 2048
 # Native blend canvas cap; wider requests are Lanczos-upscaled afterwards.
 MAX_BLEND_WIDTH = 3072
+
+
+CAPTURE_COLUMNS = 12
+# A frame reaches pitch +/- vFOV/2, so the tilt decides how much ceiling and
+# floor a sweep photographs.  50 closes the pole caps on a typical 4:3 phone
+# and an ultrawide and cuts them to 6 degrees on the narrowest 3:4 crop.
+# Must match BAND_TILT_DEGREES in src/lib/capture-plan.ts.
+BAND_TILT = 50.0
+BANDS = (("middle", 0.0), ("upper", BAND_TILT), ("lower", -BAND_TILT))
+MIN_PAIR_INLIERS = 12
+# Full-resolution photo stills are projected at up to this width; the
+# lightweight registration copies stay much smaller.
+MAX_SOURCE_WIDTH = 2048
+# Native blend canvas cap; wider requests are Lanczos-upscaled afterwards.
+MAX_BLEND_WIDTH = 3072
+# Capture advice thresholds, in degrees.
+TURN_TOLERANCE = 7.0
+TILT_TOLERANCE = 6.0
+ROLL_TOLERANCE = 8.0
 
 
 def wrap_degrees(angle: float) -> float:
@@ -123,6 +158,29 @@ def load_imu_poses(input_dir: Path) -> dict[int, tuple[float, float, float]]:
     return poses
 
 
+def load_imu_rotations(input_dir: Path) -> dict[int, np.ndarray]:
+    """Exact rear-camera rotations from the phone's orientation samples."""
+    path = input_dir / "imu.json"
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    rotations: dict[int, np.ndarray] = {}
+    for key, value in raw.items():
+        try:
+            sequence = int(key)
+            angles = (float(value["alpha"]), float(value["beta"]), float(value["gamma"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= sequence < CAPTURE_COLUMNS * len(BANDS) and all(math.isfinite(v) for v in angles):
+            rotations[sequence] = rotation_from_orientation(*angles)
+    return rotations
+
+
 @dataclass
 class PreparedFrame:
     sequence: int
@@ -130,9 +188,8 @@ class PreparedFrame:
     column: int
     source: np.ndarray
     image: np.ndarray
-    mask: np.ndarray
     gray: np.ndarray
-    keypoints: list[Any]
+    points: np.ndarray
     descriptors: np.ndarray | None
     blur_score: float
     focus_score: float
@@ -167,44 +224,6 @@ def resize_for_registration(image: np.ndarray, target_width: int) -> np.ndarray:
         (max(2, round(width * scale)), max(2, round(height * scale))),
         interpolation=cv2.INTER_AREA,
     )
-
-
-def cylindrical_warp(
-    image: np.ndarray,
-    horizontal_fov: float,
-    roll_degrees: float = 0.0,
-) -> tuple[np.ndarray, np.ndarray]:
-    height, width = image.shape[:2]
-    focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
-    y_grid, x_grid = np.indices((height, width), dtype=np.float32)
-    theta = (x_grid - (width - 1) * 0.5) / focal
-    vertical = (y_grid - (height - 1) * 0.5) / focal
-    source_x = focal * np.tan(theta) + (width - 1) * 0.5
-    source_y = focal * vertical / np.cos(theta) + (height - 1) * 0.5
-    if abs(roll_degrees) > 0.05:
-        # Undo the hand tilt while sampling, so a matched pair and the
-        # projected layer describe the same camera. Rotating the coordinates
-        # rather than the picture keeps the validity mask exact.
-        roll = math.radians(-roll_degrees)
-        centre_x, centre_y = (width - 1) * 0.5, (height - 1) * 0.5
-        offset_x, offset_y = source_x - centre_x, source_y - centre_y
-        source_x = math.cos(roll) * offset_x - math.sin(roll) * offset_y + centre_x
-        source_y = math.sin(roll) * offset_x + math.cos(roll) * offset_y + centre_y
-    valid = (
-        (source_x >= 0)
-        & (source_x <= width - 1)
-        & (source_y >= 0)
-        & (source_y <= height - 1)
-    )
-    warped = cv2.remap(
-        image,
-        source_x,
-        source_y,
-        cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-    )
-    mask = (valid.astype(np.uint8) * 255)
-    return warped, mask
 
 
 def load_fused_frame(input_dir: Path, sequence: int) -> tuple[np.ndarray, bool]:
@@ -244,368 +263,64 @@ def focus_from_gray(gray: np.ndarray) -> float:
     return detail / max(contrast, 1.0)
 
 
-def prepare_frames(
-    input_dir: Path,
-    registration_width: int,
-    horizontal_fov: float,
-    frame_rolls: dict[int, float] | None = None,
-) -> list[PreparedFrame]:
-    detector = cv2.SIFT_create(nfeatures=1400, contrastThreshold=0.025, edgeThreshold=14)
+def prepare_frames(input_dir: Path, registration_width: int) -> list[PreparedFrame]:
+    """Loads every photo and finds its features on an undistorted copy.
+
+    Registration works on the plain photograph: a pinhole camera is exactly
+    what bundle adjustment models, so nothing has to be approximated by a
+    cylinder first.
+    """
+    detector = cv2.SIFT_create(nfeatures=1600, contrastThreshold=0.02, edgeThreshold=14)
     frames: list[PreparedFrame] = []
     for band_index, (band, _) in enumerate(BANDS):
         for column in range(CAPTURE_COLUMNS):
             sequence = band_index * CAPTURE_COLUMNS + column
             loaded, fused = load_fused_frame(input_dir, sequence)
-            # The projection keeps as much of the photo's resolution as
-            # practical; feature registration runs on a small copy.
             source = resize_for_registration(loaded, MAX_SOURCE_WIDTH)
             image = resize_for_registration(source, registration_width)
-            warped, mask = cylindrical_warp(
-                image, horizontal_fov, (frame_rolls or {}).get(sequence, 0.0),
-            )
-            gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-            blur_score = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-            focus_score = focus_from_gray(gray)
-            feature_mask = mask.copy()
-            border = max(4, round(feature_mask.shape[1] * 0.04))
-            feature_mask[:, :border] = 0
-            feature_mask[:, -border:] = 0
-            keypoints, descriptors = detector.detectAndCompute(gray, feature_mask)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            points, descriptors = detect_features(gray, detector)
             frames.append(
                 PreparedFrame(
                     sequence=sequence,
                     band=band,
                     column=column,
                     source=source,
-                    image=warped,
-                    mask=mask,
+                    image=image,
                     gray=gray,
-                    keypoints=keypoints,
+                    points=points,
                     descriptors=descriptors,
-                    blur_score=blur_score,
-                    focus_score=focus_score,
+                    blur_score=float(cv2.Laplacian(gray, cv2.CV_64F).var()),
+                    focus_score=focus_from_gray(gray),
                     fused=fused,
                 )
             )
     return frames
 
 
-def sift_pair_deltas(previous: PreparedFrame, current: PreparedFrame) -> list[tuple[float, float, float, float]]:
-    """Ratio-tested SIFT correspondences as (x0, y0, x1, y1) tuples."""
-    if previous.descriptors is None or current.descriptors is None:
-        return []
-    matcher = cv2.BFMatcher(cv2.NORM_L2)
-    candidates = matcher.knnMatch(previous.descriptors, current.descriptors, k=2)
-    correspondences: list[tuple[float, float, float, float]] = []
-    for pair in candidates:
-        if len(pair) != 2 or pair[0].distance >= 0.72 * pair[1].distance:
-            continue
-        match = pair[0]
-        p0 = previous.keypoints[match.queryIdx].pt
-        p1 = current.keypoints[match.trainIdx].pt
-        correspondences.append((p0[0], p0[1], p1[0], p1[1]))
-    return correspondences
+def capture_priors(
+    frames: list[PreparedFrame],
+    imu_rotations: dict[int, np.ndarray],
+) -> list[tuple[np.ndarray, bool]]:
+    """Starting rotation for every photo, and whether a sensor measured it.
 
-
-def refine_pair_estimate(
-    deltas: list[tuple[float, float]],
-    width: float,
-    horizontal_fov: float,
-    expected_dx: float | None,
-    min_inliers: int,
-) -> tuple[float, float, int, float] | None:
-    """Robust-median refinement and plausibility gating of pair deltas."""
-    if len(deltas) < min_inliers:
-        return None
-    values = np.asarray(deltas, dtype=np.float32)
-    median = np.median(values, axis=0)
-    residuals = np.linalg.norm(values - median, axis=1)
-    threshold = max(3.0, float(np.median(residuals) * 2.8))
-    inliers = values[residuals <= threshold]
-    if len(inliers) < min_inliers:
-        return None
-    refined = np.median(inliers, axis=0)
-    spread = float(np.median(np.linalg.norm(inliers - refined, axis=1)))
-    # A measured IMU step allows a tighter plausibility gate than the plan's
-    # nominal 45 degrees.
-    if expected_dx is not None:
-        if abs(float(refined[0]) - expected_dx) > width * 0.22:
-            return None
-    elif abs(float(refined[0]) - width * (45.0 / horizontal_fov)) > width * 0.45:
-        return None
-    return float(refined[0]), float(refined[1]), int(len(inliers)), spread
-
-
-def estimate_pair(
-    previous: PreparedFrame,
-    current: PreparedFrame,
-    horizontal_fov: float,
-    expected_dx: float | None = None,
-    learned: "Any | None" = None,
-) -> tuple[tuple[float, float, int, float], bool] | tuple[None, bool]:
-    """Estimates one in-band step; SIFT first, learned matcher as rescue.
-
-    Returns ((dx, dy, inliers, spread), used_learned) or (None, False).
+    Sensor headings are relative (the gyro starts anywhere), so they are
+    turned as a whole to put the first measured photo on its planned
+    heading; pitch and sideways tilt come from gravity and stay absolute.
     """
-    width = min(previous.image.shape[1], current.image.shape[1])
-    height = previous.image.shape[0]
-
-    if expected_dx is not None:
-        lowest, highest = expected_dx - width * 0.30, expected_dx + width * 0.30
-    else:
-        # Without motion data the turn could be anywhere from a cautious
-        # nudge to a hurried sweep, so the window spans roughly 13 to 79
-        # degrees rather than assuming the guided 45.
-        lowest, highest = width * 0.18, width * 1.10
-
-    def filtered_deltas(correspondences: list[tuple[float, float, float, float]]):
-        deltas: list[tuple[float, float]] = []
-        for x0, y0, x1, y1 in correspondences:
-            dx = x0 - x1
-            dy = y0 - y1
-            if lowest <= dx <= highest and abs(dy) <= height * 0.22:
-                deltas.append((dx, dy))
-        return deltas
-
-    estimate = refine_pair_estimate(
-        filtered_deltas(sift_pair_deltas(previous, current)),
-        width, horizontal_fov, expected_dx, MIN_PAIR_INLIERS,
-    )
-    if estimate is not None:
-        return estimate, False
-
-    # Bare walls starve SIFT; the learned matcher still locks onto faint
-    # paint gradients and soft shadows.
-    if learned is not None and learned.available():
-        correspondences = learned.match_pair(
-            previous.gray, current.gray, previous.mask, current.mask,
-        )
-        estimate = refine_pair_estimate(
-            filtered_deltas([tuple(row) for row in correspondences]),
-            width, horizontal_fov, expected_dx, MIN_LEARNED_INLIERS,
-        )
-        if estimate is not None:
-            return estimate, True
-    return None, False
-
-
-def imu_pair_step(
-    imu_poses: dict[int, tuple[float, float, float]],
-    previous_sequence: int,
-    current_sequence: int,
-    focal: float,
-) -> tuple[float, float] | None:
-    """Predicts the cylindrical (dx, dy) step between two frames from the IMU."""
-    previous = imu_poses.get(previous_sequence)
-    current = imu_poses.get(current_sequence)
-    if previous is None or current is None:
-        return None
-    yaw_delta = wrap_degrees(current[0] - previous[0])
-    pitch_delta = current[1] - previous[1]
-    if not 10.0 <= yaw_delta <= 80.0 or abs(pitch_delta) > 20.0:
-        return None
-    return focal * math.radians(yaw_delta), -focal * math.radians(pitch_delta)
-
-
-def band_positions(
-    band_frames: list[PreparedFrame],
-    horizontal_fov: float,
-    imu_poses: dict[int, tuple[float, float, float]],
-    learned: "Any | None" = None,
-) -> tuple[list[float], list[float], float, list[int], list[dict[str, Any]]]:
-    width = float(band_frames[0].image.shape[1])
-    focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
-    nominal_step = width * (45.0 / horizontal_fov)
-    estimates: list[tuple[float, float]] = []
-    guessed: list[int] = []
-    weak_pairs: list[int] = []
-    pair_reports: list[dict[str, Any]] = []
-
-    for column in range(CAPTURE_COLUMNS):
-        previous = band_frames[column]
-        current = band_frames[(column + 1) % CAPTURE_COLUMNS]
-        imu_step = imu_pair_step(imu_poses, previous.sequence, current.sequence, focal)
-        estimate, used_learned = estimate_pair(
-            previous,
-            current,
-            horizontal_fov,
-            imu_step[0] if imu_step is not None else None,
-            learned,
-        )
-        if estimate is None:
-            estimates.append(imu_step if imu_step is not None else (nominal_step, 0.0))
-            weak_pairs.append(column)
-            if imu_step is None:
-                guessed.append(column)
-            pair_reports.append({
-                "from": previous.sequence,
-                "to": current.sequence,
-                "inliers": 0,
-                "fallback": True,
-                "imu": imu_step is not None,
-            })
-            continue
-        dx, dy, inliers, spread = estimate
-        estimates.append((dx, dy))
-        pair_reports.append(
-            {
-                "from": previous.sequence,
-                "to": current.sequence,
-                "inliers": inliers,
-                "spread": round(spread, 2),
-                "fallback": False,
-                "learned": used_learned,
-            }
-        )
-
-    # A sweep returns to where it started, so the eight turns must add up to
-    # a full circle.  Overlaps that could be measured keep exactly what they
-    # measured, and the ones that could not - the bare walls - divide the
-    # remainder between them.  Assuming a textbook 45 degrees for those
-    # instead would fold the wall wherever the real sweep hurried or lingered.
-    full_turn = 2.0 * math.pi * focal
-    measured_total = sum(
-        dx for column, (dx, _) in enumerate(estimates) if column not in weak_pairs
-    )
-    if guessed and 0.0 < measured_total < full_turn:
-        share = (full_turn - measured_total) / len(guessed)
-        # Only trust the remainder if it implies a believable turn per gap.
-        if width * 0.10 <= share <= width * 1.60:
-            for column in guessed:
-                estimates[column] = (share, estimates[column][1])
-
-    circumference = max(width * 3.4, sum(dx for dx, _ in estimates))
-    vertical_closure = sum(dy for _, dy in estimates)
-    corrected_dy = [dy - vertical_closure / CAPTURE_COLUMNS for _, dy in estimates]
-    x_positions = [0.0]
-    y_positions = [0.0]
-    for index in range(CAPTURE_COLUMNS - 1):
-        x_positions.append(x_positions[-1] + estimates[index][0])
-        y_positions.append(y_positions[-1] + corrected_dy[index])
-    return x_positions, y_positions, circumference, weak_pairs, pair_reports
-
-
-def ring_yaws(x_positions: list[float], circumference: float) -> list[float]:
-    return [x * 360.0 / circumference for x in x_positions]
-
-
-def estimate_band_alignment(
-    middle_frames: list[PreparedFrame],
-    other_frames: list[PreparedFrame],
-    horizontal_fov: float,
-    direction: int,
-    middle_yaws: list[float],
-    other_yaws: list[float],
-    learned: "Any | None" = None,
-) -> tuple[float, float, int] | None:
-    """Matches each column against the eye-level band to measure the tilted
-    band's true yaw offset and pitch instead of trusting the guided targets.
-
-    `direction` is +1 for the upper band and -1 for the lower band.  Returns
-    (yaw offset in degrees, measured band pitch in degrees, matched columns).
-    """
-    width = float(middle_frames[0].image.shape[1])
-    height = float(middle_frames[0].image.shape[0])
-    focal = (width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
-    center_y = (height - 1.0) * 0.5
-    offset_estimates: list[float] = []
-    pitch_estimates: list[float] = []
-    matched_columns = 0
-
-    def column_samples(
-        correspondences: list[tuple[float, float, float, float]],
-    ) -> list[tuple[float, float]]:
-        samples: list[tuple[float, float]] = []
-        for x_mid, y_mid, x_oth, y_oth in correspondences:
-            dx = x_mid - x_oth
-            dy = y_mid - y_oth
-            if abs(dx) > width * 0.30:
-                continue
-            if not 0.30 * focal <= dy * direction * -1.0 <= 1.05 * focal:
-                continue
-            pitch_sample = math.degrees(
-                math.atan2(center_y - y_mid, focal) - math.atan2(center_y - y_oth, focal)
-            )
-            samples.append((math.degrees(dx / focal), pitch_sample))
-        return samples
-
-    def refine_column(samples: list[tuple[float, float]], min_inliers: int):
-        if len(samples) < min_inliers:
-            return None
-        values = np.asarray(samples, dtype=np.float32)
-        median = np.median(values, axis=0)
-        residuals = np.linalg.norm(values - median, axis=1)
-        threshold = max(0.75, float(np.median(residuals) * 2.8))
-        inliers = values[residuals <= threshold]
-        if len(inliers) < min_inliers:
-            return None
-        refined = np.median(inliers, axis=0)
-        pitch_estimate = float(refined[1])
-        if not 24.0 <= pitch_estimate * direction <= 46.0:
-            return None
-        return float(refined[0]), pitch_estimate
-
-    for column in range(CAPTURE_COLUMNS):
-        middle = middle_frames[column]
-        other = other_frames[column]
-        refined = refine_column(
-            column_samples(sift_pair_deltas(middle, other)), MIN_PAIR_INLIERS,
-        )
-        if refined is None and learned is not None and learned.available():
-            correspondences = learned.match_pair(
-                middle.gray, other.gray, middle.mask, other.mask,
-            )
-            refined = refine_column(
-                column_samples([tuple(row) for row in correspondences]),
-                MIN_LEARNED_INLIERS,
-            )
-        if refined is None:
-            continue
-        yaw_sample, pitch_estimate = refined
-        # The tilted band's cylindrical warp compresses azimuth by roughly
-        # cos(pitch), so the raw x delta underestimates the yaw difference.
-        yaw_delta = yaw_sample / max(0.5, math.cos(math.radians(pitch_estimate)))
-        offset_estimates.append(
-            wrap_degrees(middle_yaws[column] + yaw_delta - other_yaws[column])
-        )
-        pitch_estimates.append(pitch_estimate)
-        matched_columns += 1
-
-    if matched_columns < 2:
-        return None
-    yaw_offset = float(np.median(np.asarray(offset_estimates, dtype=np.float32)))
-    band_pitch = float(np.median(np.asarray(pitch_estimates, dtype=np.float32)))
-    if abs(yaw_offset) > MAX_BAND_YAW_OFFSET:
-        return None
-    return yaw_offset, band_pitch, matched_columns
-
-
-def imu_band_alignment(
-    imu_poses: dict[int, tuple[float, float, float]],
-    band_index: int,
-    nominal_pitch: float,
-    middle_yaws: list[float],
-    other_yaws: list[float],
-) -> tuple[float, float] | None:
-    """Falls back to IMU headings when vertical matching finds no columns."""
-    offsets: list[float] = []
-    pitches: list[float] = []
-    for column in range(CAPTURE_COLUMNS):
-        middle_pose = imu_poses.get(column)
-        other_pose = imu_poses.get(band_index * CAPTURE_COLUMNS + column)
-        if middle_pose is None or other_pose is None:
-            continue
-        offsets.append(wrap_degrees(
-            middle_yaws[column] + wrap_degrees(other_pose[0] - middle_pose[0]) - other_yaws[column]
-        ))
-        pitches.append(other_pose[1] - middle_pose[1])
-    if len(offsets) < 3:
-        return None
-    yaw_offset = float(np.median(np.asarray(offsets, dtype=np.float32)))
-    band_pitch = float(np.median(np.asarray(pitches, dtype=np.float32)))
-    if abs(yaw_offset) > MAX_BAND_YAW_OFFSET or abs(band_pitch - nominal_pitch) > 12.0:
-        return None
-    return yaw_offset, band_pitch
+    band_pitch = dict(BANDS)
+    nominal = {frame.sequence: frame.column * 360.0 / CAPTURE_COLUMNS for frame in frames}
+    reference = next((frame.sequence for frame in frames if frame.sequence in imu_rotations), None)
+    base = np.eye(3)
+    if reference is not None:
+        base = heading_rotation(nominal[reference] - heading_of(imu_rotations[reference]))
+    priors: list[tuple[np.ndarray, bool]] = []
+    for frame in frames:
+        if frame.sequence in imu_rotations:
+            priors.append((base @ imu_rotations[frame.sequence], True))
+        else:
+            priors.append((camera_rotation(nominal[frame.sequence], band_pitch[frame.band]), False))
+    return priors
 
 
 def choose_retakes(
@@ -625,7 +340,7 @@ def choose_retakes(
         band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
         for column in weak_by_band[band]:
             candidates = (band_frames[column], band_frames[(column + 1) % CAPTURE_COLUMNS])
-            weaker = min(candidates, key=lambda frame: (frame.focus_score, len(frame.keypoints)))
+            weaker = min(candidates, key=lambda frame: (frame.focus_score, len(frame.points)))
             retakes.add(weaker.sequence)
     return sorted(retakes)
 
@@ -641,6 +356,66 @@ def blurred_sequences(frames: list[PreparedFrame]) -> list[int]:
     return [frame.sequence for frame in frames if frame.focus_score < floor]
 
 
+SRGB_GAMMA = 2.2
+
+
+def estimate_gains(frames: list[PreparedFrame], alignment: Alignment) -> np.ndarray:
+    """Per-photo, per-channel gains that make overlapping photos agree.
+
+    Phones re-expose and re-balance every shot.  The same scene point is
+    seen at each matched feature, so the ratio of its colour between two
+    photos is exactly their relative gain.  Gains are solved in linear light
+    (what exposure actually scales) by least squares over all matched pairs,
+    anchored so the capture keeps its typical brightness.
+    """
+    count = len(frames)
+    blurred = [
+        (cv2.blur(frame.image, (7, 7)).astype(np.float32) / 255.0) ** SRGB_GAMMA
+        for frame in frames
+    ]
+    rows: list[tuple[int, int, np.ndarray, float]] = []
+    for pair in alignment.pairs:
+        first, second = blurred[pair.first], blurred[pair.second]
+        height, width = first.shape[:2]
+        xa = np.clip(pair.points_first[:, 0].round().astype(int), 0, width - 1)
+        ya = np.clip(pair.points_first[:, 1].round().astype(int), 0, height - 1)
+        xb = np.clip(pair.points_second[:, 0].round().astype(int), 0, width - 1)
+        yb = np.clip(pair.points_second[:, 1].round().astype(int), 0, height - 1)
+        color_a, color_b = first[ya, xa], second[yb, xb]
+        usable = np.all((color_a > 0.004) & (color_a < 0.93) & (color_b > 0.004) & (color_b < 0.93), axis=1)
+        if usable.sum() < 6:
+            continue
+        ratio = np.median(np.log(color_a[usable]) - np.log(color_b[usable]), axis=0)
+        rows.append((pair.first, pair.second, ratio, float(usable.sum())))
+    gains = np.ones((count, 3))
+    if not rows:
+        return gains
+    for channel in range(3):
+        normal = np.eye(count) * 0.02
+        target = np.zeros(count)
+        for first, second, ratio, weight in rows:
+            # gain_first * colour_first = gain_second * colour_second
+            normal[first, first] += weight
+            normal[second, second] += weight
+            normal[first, second] -= weight
+            normal[second, first] -= weight
+            target[first] -= weight * ratio[channel]
+            target[second] += weight * ratio[channel]
+        log_gain = np.linalg.solve(normal, target)
+        log_gain -= np.median(log_gain)
+        gains[:, channel] = np.exp(log_gain)
+    return np.clip(gains, 0.4, 2.5)
+
+
+def apply_gains(image: np.ndarray, gains: np.ndarray) -> np.ndarray:
+    levels = np.arange(256, dtype=np.float32) / 255.0
+    channels = []
+    for channel in range(3):
+        table = np.clip((levels ** SRGB_GAMMA * gains[channel]) ** (1 / SRGB_GAMMA) * 255.0 + 0.5, 0, 255)
+        channels.append(cv2.LUT(image[:, :, channel], table.astype(np.uint8)))
+    return cv2.merge(channels)
+
+
 def mask_column_runs(mask: np.ndarray) -> list[tuple[int, int]]:
     occupied = np.any(mask > 0, axis=0).astype(np.uint8)
     padded = np.pad(occupied, (1, 1))
@@ -651,56 +426,39 @@ def mask_column_runs(mask: np.ndarray) -> list[tuple[int, int]]:
 
 
 def spherical_layers(
-    frame: PreparedFrame,
-    yaw_degrees: float,
-    pitch_degrees: float,
-    horizontal_fov: float,
-    longitude_sin: np.ndarray,
-    longitude_cos: np.ndarray,
-    latitude_sin: np.ndarray,
-    latitude_cos: np.ndarray,
-    roll_degrees: float = 0.0,
+    source: np.ndarray,
+    rotation: np.ndarray,
+    focal: float,
+    longitude: np.ndarray,
+    latitude: np.ndarray,
 ) -> list[tuple[np.ndarray, np.ndarray, tuple[int, int]]]:
-    source_height, source_width = frame.source.shape[:2]
-    focal = (source_width * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
-    world_x = latitude_cos[:, None] * longitude_sin[None, :]
-    world_y = latitude_sin[:, None]
-    world_z = latitude_cos[:, None] * longitude_cos[None, :]
+    """Projects one photo onto the equirectangular canvas.
 
-    yaw = math.radians(yaw_degrees)
-    pitch = math.radians(pitch_degrees)
-    # Invert Ry(yaw) * Rx(-pitch) to transform each world ray into
-    # this camera. Positive pitch therefore points toward the ceiling.
-    local_x = math.cos(yaw) * world_x - math.sin(yaw) * world_z
-    yaw_local_z = math.sin(yaw) * world_x + math.cos(yaw) * world_z
-    local_y = math.cos(pitch) * world_y - math.sin(pitch) * yaw_local_z
-    local_z = math.sin(pitch) * world_y + math.cos(pitch) * yaw_local_z
-
-    if abs(roll_degrees) > 0.05:
-        # IMU-measured roll: positive tilts the camera's top toward its right.
-        roll = math.radians(roll_degrees)
-        rolled_x = math.cos(roll) * local_x - math.sin(roll) * local_y
-        local_y = math.cos(roll) * local_y + math.sin(roll) * local_x
-        local_x = rolled_x
-
-    safe_z = np.where(local_z > 1e-5, local_z, 1.0)
-    map_x = (focal * local_x / safe_z + (source_width - 1) * 0.5).astype(np.float32)
-    map_y = ((source_height - 1) * 0.5 - focal * local_y / safe_z).astype(np.float32)
-    valid = (
-        (local_z > 1e-5)
-        & (map_x >= 0)
-        & (map_x <= source_width - 1)
-        & (map_y >= 0)
-        & (map_y <= source_height - 1)
-    )
+    Column 0 of the canvas is heading zero and headings grow to the right;
+    the top row looks straight up.  Only the rows the photo can reach are
+    computed.
+    """
+    source_height, source_width = source.shape[:2]
+    forward = rotation @ FORWARD
+    centre_latitude = math.asin(max(-1.0, min(1.0, float(forward[1]))))
+    reach = math.atan(math.hypot(source_width, source_height) * 0.5 / focal) + 0.02
+    rows = np.flatnonzero(np.abs(latitude - centre_latitude) <= reach)
+    if rows.size == 0:
+        return []
+    row_start, row_end = int(rows[0]), int(rows[-1] + 1)
+    lat = latitude[row_start:row_end]
+    world = np.empty((row_end - row_start, longitude.size, 3), dtype=np.float32)
+    world[..., 0] = np.cos(lat)[:, None] * np.sin(longitude)[None, :]
+    world[..., 1] = np.sin(lat)[:, None]
+    world[..., 2] = -np.cos(lat)[:, None] * np.cos(longitude)[None, :]
+    local = world @ rotation.astype(np.float32)
+    depth = -local[..., 2]
+    safe = np.where(depth > 1e-4, depth, 1.0)
+    map_x = (focal * local[..., 0] / safe + (source_width - 1) * 0.5).astype(np.float32)
+    map_y = ((source_height - 1) * 0.5 - focal * local[..., 1] / safe).astype(np.float32)
+    valid = (depth > 1e-4) & (map_x >= 0) & (map_x <= source_width - 1) & (map_y >= 0) & (map_y <= source_height - 1)
     mask = valid.astype(np.uint8) * 255
-    projected = cv2.remap(
-        frame.source,
-        map_x,
-        map_y,
-        cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-    )
+    projected = cv2.remap(source, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
     layers: list[tuple[np.ndarray, np.ndarray, tuple[int, int]]] = []
     for start, end in mask_column_runs(mask):
@@ -713,7 +471,7 @@ def spherical_layers(
             (
                 projected[top:bottom, start:end].copy(),
                 mask[top:bottom, start:end].copy(),
-                (start, top),
+                (start, row_start + top),
             )
         )
     return layers
@@ -721,45 +479,21 @@ def spherical_layers(
 
 def build_layers(
     frames: list[PreparedFrame],
-    positions: dict[str, tuple[list[float], list[float], float]],
-    band_alignment: dict[str, tuple[float, float]],
-    frame_rolls: dict[int, float],
+    alignment: Alignment,
     output_width: int,
     output_height: int,
-    horizontal_fov: float,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[tuple[int, int]]]:
     images: list[np.ndarray] = []
     masks: list[np.ndarray] = []
     corners: list[tuple[int, int]] = []
-    longitude = np.arange(output_width, dtype=np.float32) * (2.0 * np.pi / output_width)
-    latitude = np.pi * 0.5 - np.arange(output_height, dtype=np.float32) * (np.pi / output_height)
-    longitude_sin = np.sin(longitude)
-    longitude_cos = np.cos(longitude)
-    latitude_sin = np.sin(latitude)
-    latitude_cos = np.cos(latitude)
-
-    for band_index, (band, _) in enumerate(BANDS):
-        x_positions, y_positions, circumference = positions[band]
-        yaw_offset, band_pitch = band_alignment[band]
-        band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
-        for column, frame in enumerate(band_frames):
-            yaw = x_positions[column] * 360.0 / circumference + yaw_offset
-            registration_focal = (frame.image.shape[1] * 0.5) / math.tan(math.radians(horizontal_fov * 0.5))
-            pitch_correction = math.degrees(math.atan2(y_positions[column], registration_focal))
-            for image, mask, corner in spherical_layers(
-                frame,
-                yaw,
-                band_pitch - pitch_correction,
-                horizontal_fov,
-                longitude_sin,
-                longitude_cos,
-                latitude_sin,
-                latitude_cos,
-                frame_rolls.get(frame.sequence, 0.0),
-            ):
-                images.append(image)
-                masks.append(mask)
-                corners.append(corner)
+    longitude = (np.arange(output_width, dtype=np.float32) * (2.0 * np.pi / output_width)).astype(np.float32)
+    latitude = (np.pi * 0.5 - (np.arange(output_height, dtype=np.float32) + 0.5) * (np.pi / output_height)).astype(np.float32)
+    for frame, rotation in zip(frames, alignment.rotations):
+        focal = alignment.focal * frame.source.shape[1] / frame.image.shape[1]
+        for image, mask, corner in spherical_layers(frame.source, rotation, focal, longitude, latitude):
+            images.append(image)
+            masks.append(mask)
+            corners.append(corner)
     return images, masks, corners
 
 
@@ -843,17 +577,18 @@ def smooth_ring_colors(colors: np.ndarray, kernel_width: int) -> np.ndarray:
 def fill_polar_holes(
     result: np.ndarray,
     result_mask: np.ndarray,
-    trim_degrees: float = 8.0,
+    trim_degrees: float = 0.6,
 ) -> None:
     """Fills the pole caps with a smooth gradient toward the ring of nearest
     trusted pixels.
 
     Replaces diffusion inpainting, which took minutes at 3K+ output sizes.
-    A thin margin just inside the coverage boundary is discarded too: the
-    equirectangular projection stretches each frame's outermost row into
-    single-pixel streaks, and a smooth cap reads better than those.  The
-    margin follows the coverage rather than a fixed latitude, so a capture
-    that genuinely saw more of the floor keeps it.
+    Only a hairline just inside the coverage boundary is discarded, where the
+    multiband blend fades against the empty canvas.  This used to be 8°,
+    which replaced real photographed curtain rails, ceiling lights and the
+    bottom of furniture with the smooth fill.  The margin follows the
+    coverage rather than a fixed latitude, so a capture that saw more of the
+    floor keeps it.
     """
     valid = result_mask != 0
     height, width = valid.shape
@@ -904,6 +639,7 @@ def measure_horizontal_fov(
     input_dir: Path,
     learned: "Any | None",
     default_fov: float = 72.0,
+    imu_turns: dict[int, float] | None = None,
 ) -> tuple[float, bool]:
     """Recovers the camera's horizontal field of view from the capture itself.
 
@@ -913,6 +649,11 @@ def measure_horizontal_fov(
     fall short.  Phones rarely report a usable focal length and a 3:4 crop, a
     16:9 crop and an ultrawide all differ by tens of degrees, so measuring
     beats assuming.
+
+    When the phone measured each turn (`imu_turns`), every pair is compared
+    with its own turn instead of assuming a perfect 30° step; handheld turns
+    range from 20° to 40° and would otherwise skew the lens.  This is only
+    the starting point: bundle adjustment refines the focal afterwards.
     """
     frames = []
     for column in range(CAPTURE_COLUMNS):
@@ -962,7 +703,7 @@ def measure_horizontal_fov(
         if abs(float(np.median(horizontal))) < width * 0.08:
             correspondences.append(None)
             continue
-        correspondences.append((points[0][keep, 0], points[1][keep, 0]))
+        correspondences.append((points[0][keep, 0], points[1][keep, 0], column))
 
     usable = [c for c in correspondences if c is not None]
     if len(usable) < max(3, CAPTURE_COLUMNS // 2):
@@ -970,27 +711,31 @@ def measure_horizontal_fov(
 
     # Every turn of one sweep goes the same way; a pair that disagrees is a
     # mismatch, not a change of heart.
-    directions = [float(np.median(a - b)) for a, b in usable]
+    directions = [float(np.median(a - b)) for a, b, _ in usable]
     forward = sum(1 for d in directions if d > 0) >= len(directions) / 2
     usable = [c for c, d in zip(usable, directions) if (d > 0) == forward]
     if len(usable) < max(3, CAPTURE_COLUMNS // 2):
         return default_fov, False
 
+    nominal_turn = 2.0 * math.pi / CAPTURE_COLUMNS
+    turns = imu_turns or {}
+
     def typical_turn(focal: float) -> float:
         angles = []
-        for first_x, second_x in usable:
+        for first_x, second_x, column in usable:
             turn = np.arctan((first_x - centre) / focal) - np.arctan((second_x - centre) / focal)
             median = np.median(turn)
             spread = np.median(np.abs(turn - median))
             inliers = turn[np.abs(turn - median) <= max(math.radians(0.5), spread * 3)]
             if len(inliers) >= 12:
-                angles.append(abs(float(np.median(inliers))))
+                # Scale each pair to the step it really was, when measured.
+                scale = nominal_turn / math.radians(turns[column]) if column in turns else 1.0
+                angles.append(abs(float(np.median(inliers))) * scale)
         return float(np.median(angles)) if angles else 0.0
 
-    # The sweep is aimed at even steps, so the typical turn should be one
-    # step of the circle.  Turn angle shrinks as the focal grows, which makes
-    # the search monotonic.
-    nominal_turn = 2.0 * math.pi / CAPTURE_COLUMNS
+    # The sweep is aimed at even steps, so the typical (scaled) turn should
+    # be one step of the circle.  Turn angle shrinks as the focal grows,
+    # which makes the search monotonic.
     low, high = width * 0.20, width * 6.0
     for _ in range(50):
         middle = (low + high) * 0.5
@@ -1005,14 +750,97 @@ def measure_horizontal_fov(
     return fov, True
 
 
+def capture_advice(
+    frames: list[PreparedFrame],
+    alignment: Alignment,
+    gains: np.ndarray,
+) -> tuple[list[str], list[dict[str, float]]]:
+    """Plain-language notes on how the photos were taken, from the solve."""
+    angles = [
+        {
+            "sequence": frame.sequence,
+            "yaw": round(heading_of(rotation), 1),
+            "pitch": round(pitch_of(rotation), 1),
+            "roll": round(roll_of(rotation), 1),
+        }
+        for frame, rotation in zip(frames, alignment.rotations)
+    ]
+    notes: list[str] = []
+    band_pitch = dict(BANDS)
+    uneven: list[str] = []
+    for band_index, (band, _) in enumerate(BANDS):
+        for column in range(CAPTURE_COLUMNS):
+            first = angles[band_index * CAPTURE_COLUMNS + column]
+            second = angles[band_index * CAPTURE_COLUMNS + (column + 1) % CAPTURE_COLUMNS]
+            turn = (second["yaw"] - first["yaw"]) % 360.0
+            if abs(turn - 360.0 / CAPTURE_COLUMNS) > TURN_TOLERANCE:
+                uneven.append(f"{first['sequence'] + 1}→{second['sequence'] + 1} ({turn:.0f}°)")
+    if uneven:
+        notes.append(
+            "Uneven turns between photos " + ", ".join(uneven[:4])
+            + ". Stop on each dot; about 30° per step keeps enough overlap."
+        )
+    middle = [angle for angle, frame in zip(angles, frames) if frame.band == "middle"]
+    mean_pitch = float(np.mean([angle["pitch"] - band_pitch["middle"] for angle in middle]))
+    if abs(mean_pitch) > TILT_TOLERANCE:
+        notes.append(
+            f"The phone pointed {abs(mean_pitch):.0f}° {'down' if mean_pitch < 0 else 'up'} on average at eye level. "
+            "Hold it level so the ceiling and floor edges are photographed evenly."
+        )
+    tilted = [angle for angle in angles if abs(angle["roll"]) > ROLL_TOLERANCE]
+    if tilted:
+        notes.append(
+            "Photo" + ("s " if len(tilted) > 1 else " ")
+            + ", ".join(f"{angle['sequence'] + 1} ({abs(angle['roll']):.0f}°)" for angle in tilted[:5])
+            + " were tilted sideways. It was corrected, but an upright phone keeps more of each photo."
+        )
+    brightness = gains.mean(axis=1)
+    if brightness.max() / max(brightness.min(), 1e-3) > 1.35:
+        notes.append(
+            "Brightness changed a lot between photos and was evened out. "
+            "Locking exposure (the capture does this when the phone allows it) avoids it."
+        )
+    return notes, angles
+
+
+def adjacent_pair_reports(
+    frames: list[PreparedFrame],
+    alignment: Alignment,
+    measured: list[bool],
+) -> tuple[list[dict[str, Any]], dict[str, list[int]]]:
+    """Reports the in-sweep neighbour overlaps, which decide retakes."""
+    matched = {(pair.first, pair.second): pair for pair in alignment.pairs}
+    reports: list[dict[str, Any]] = []
+    weak_by_band: dict[str, list[int]] = {}
+    for band_index, (band, _) in enumerate(BANDS):
+        weak_by_band[band] = []
+        for column in range(CAPTURE_COLUMNS):
+            first = band_index * CAPTURE_COLUMNS + column
+            second = band_index * CAPTURE_COLUMNS + (column + 1) % CAPTURE_COLUMNS
+            pair = matched.get((min(first, second), max(first, second)))
+            if pair is None:
+                weak_by_band[band].append(column)
+                reports.append({
+                    "from": first, "to": second, "inliers": 0, "fallback": True,
+                    "imu": measured[first] and measured[second],
+                })
+            else:
+                reports.append({
+                    "from": first, "to": second, "inliers": len(pair.points_first), "fallback": False,
+                    "learned": pair.learned, "residual": round(pair.residual_degrees, 3),
+                })
+    return reports, weak_by_band
+
+
 def process(args: argparse.Namespace) -> dict[str, Any]:
     if args.width < 640 or args.height < 320 or args.width != args.height * 2:
         raise ValueError("Output dimensions must use a supported 2:1 size.")
 
-    registration_width = min(640, max(320, round(args.width / 5.0)))
+    registration_width = min(720, max(360, round(args.width / 4.5)))
     timer = StageTimer()
     input_dir = Path(args.input)
     imu_poses = load_imu_poses(input_dir)
+    imu_rotations = load_imu_rotations(input_dir)
 
     learned = None
     if args.matcher != "sift":
@@ -1023,93 +851,42 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         except ImportError:
             learned = None
 
+    imu_turns: dict[int, float] = {}
+    for column in range(CAPTURE_COLUMNS):
+        following = (column + 1) % CAPTURE_COLUMNS
+        if column in imu_rotations and following in imu_rotations:
+            turn = wrap_degrees(heading_of(imu_rotations[following]) - heading_of(imu_rotations[column]))
+            if 8.0 <= turn <= 70.0:
+                imu_turns[column] = turn
     lens_fov, lens_measured = (args.horizontal_fov, False)
     if args.horizontal_fov <= 0.0:
-        lens_fov, lens_measured = measure_horizontal_fov(input_dir, learned)
+        lens_fov, lens_measured = measure_horizontal_fov(input_dir, learned, imu_turns=imu_turns)
         timer.mark("lens")
     # Calibration measures the already-cropped uploaded photographs. Applying
-    # zoom again would narrow the lens twice and needlessly demand retakes.
+    # zoom again would narrow the lens twice.
     effective_fov = lens_fov if lens_measured else math.degrees(
         2.0 * math.atan(math.tan(math.radians(lens_fov * 0.5)) / args.zoom)
     )
     effective_fov = max(38.0, min(112.0, effective_fov))
 
-    # IMU roll deviations from the eye-level median keep hand wobble from
-    # tilting individual views without rotating the whole panorama.
-    frame_rolls: dict[int, float] = {}
-    middle_rolls = [imu_poses[s][2] for s in range(CAPTURE_COLUMNS) if s in imu_poses]
-    if middle_rolls:
-        reference_roll = float(np.median(np.asarray(middle_rolls, dtype=np.float32)))
-        for sequence, pose in imu_poses.items():
-            roll = wrap_degrees(pose[2] - reference_roll)
-            frame_rolls[sequence] = max(-MAX_FRAME_ROLL, min(MAX_FRAME_ROLL, roll))
-
-    frames = prepare_frames(input_dir, registration_width, effective_fov, frame_rolls)
+    frames = prepare_frames(input_dir, registration_width)
     timer.mark("prepare")
-    positions: dict[str, tuple[list[float], list[float], float]] = {}
-    weak_by_band: dict[str, list[int]] = {}
-    pair_reports: list[dict[str, Any]] = []
-    for band_index, (band, _) in enumerate(BANDS):
-        band_frames = frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS]
-        x_positions, y_positions, circumference, weak_pairs, reports = band_positions(
-            band_frames,
-            effective_fov,
-            imu_poses,
-            learned,
-        )
-        positions[band] = (x_positions, y_positions, circumference)
-        weak_by_band[band] = weak_pairs
-        pair_reports.extend(reports)
+    priors = capture_priors(frames, imu_rotations)
+    measured = [trusted for _, trusted in priors]
+    keyframes = [
+        Keyframe(frame.gray, frame.points, frame.descriptors, prior, trusted)
+        for frame, (prior, trusted) in zip(frames, priors)
+    ]
+    initial_focal = (frames[0].image.shape[1] * 0.5) / math.tan(math.radians(effective_fov * 0.5))
+    alignment = align_capture(keyframes, initial_focal, learned, MIN_PAIR_INLIERS)
+    solved_fov = math.degrees(2.0 * math.atan(frames[0].image.shape[1] * 0.5 / alignment.focal))
+    timer.mark("align")
 
-    # Register the tilted bands against the eye-level ring so a drifted sweep
-    # start or an imprecise tilt no longer shears the panorama vertically.
-    middle_yaw_ring = ring_yaws(positions["middle"][0], positions["middle"][2])
-    band_alignment: dict[str, tuple[float, float]] = {"middle": (0.0, 0.0)}
-    cross_band_report: dict[str, Any] = {}
-    for band_index, (band, nominal_pitch) in enumerate(BANDS):
-        if band == "middle":
-            continue
-        band_yaw_ring = ring_yaws(positions[band][0], positions[band][2])
-        direction = 1 if nominal_pitch > 0 else -1
-        alignment = estimate_band_alignment(
-            frames[0:CAPTURE_COLUMNS],
-            frames[band_index * CAPTURE_COLUMNS : (band_index + 1) * CAPTURE_COLUMNS],
-            effective_fov,
-            direction,
-            middle_yaw_ring,
-            band_yaw_ring,
-            learned,
-        )
-        if alignment is not None:
-            yaw_offset, band_pitch, matched_columns = alignment
-            band_alignment[band] = (yaw_offset, band_pitch)
-            cross_band_report[band] = {
-                "source": "features",
-                "columns": matched_columns,
-                "yawOffset": round(yaw_offset, 2),
-                "pitch": round(band_pitch, 2),
-            }
-            continue
-        imu_alignment = imu_band_alignment(
-            imu_poses, band_index, nominal_pitch, middle_yaw_ring, band_yaw_ring,
-        )
-        if imu_alignment is not None:
-            band_alignment[band] = imu_alignment
-            cross_band_report[band] = {
-                "source": "imu",
-                "columns": 0,
-                "yawOffset": round(imu_alignment[0], 2),
-                "pitch": round(imu_alignment[1], 2),
-            }
-        else:
-            band_alignment[band] = (0.0, nominal_pitch)
-            cross_band_report[band] = {"source": "plan", "columns": 0}
-
+    pair_reports, weak_by_band = adjacent_pair_reports(frames, alignment, measured)
     retake_sequences = choose_retakes(frames, weak_by_band)
     fallback_pairs = sum(len(pairs) for pairs in weak_by_band.values())
-    # An overlap that fell back to a measured IMU step is still placed from
-    # real data; only overlaps with neither features nor motion data are
-    # guesses, and only those justify refusing the capture.
+    # A photo with no visual match is still placed from real data when the
+    # phone measured it; only overlaps with neither are guesses.
     blind_pairs = sum(
         1 for report in pair_reports if report.get("fallback") and not report.get("imu")
     )
@@ -1120,24 +897,30 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             "The photographs do not contain enough sharp overlap for reliable alignment." + suffix,
             retake_sequences,
         )
+    cross_band: dict[str, Any] = {}
+    for band_index, (band, _) in enumerate(BANDS):
+        if band == "middle":
+            continue
+        members = range(band_index * CAPTURE_COLUMNS, (band_index + 1) * CAPTURE_COLUMNS)
+        linked = sum(
+            1 for pair in alignment.pairs
+            if (pair.first in members) != (pair.second in members)
+            and (pair.first < CAPTURE_COLUMNS or pair.second < CAPTURE_COLUMNS)
+        )
+        cross_band[band] = {"source": "features" if linked else ("imu" if any(measured[i] for i in members) else "plan"), "pairs": linked}
+
+    gains = estimate_gains(frames, alignment)
+    for frame, gain in zip(frames, gains):
+        frame.source = apply_gains(frame.source, gain)
+    timer.mark("gains")
 
     # Seam finding and pyramid blending scale superlinearly, so the working
     # panorama is capped; larger exports get one high-quality resize at the
-    # end.  The graph-cut seam resolution stays roughly constant regardless of
-    # the blend width.
+    # end.
     blend_width = min(args.width, MAX_BLEND_WIDTH)
     blend_height = blend_width // 2
     seam_scale = 0.28 * min(1.0, 1920.0 / blend_width)
-    timer.mark("align")
-    images, masks, corners = build_layers(
-        frames,
-        positions,
-        band_alignment,
-        frame_rolls,
-        blend_width,
-        blend_height,
-        effective_fov,
-    )
+    images, masks, corners = build_layers(frames, alignment, blend_width, blend_height)
     timer.mark("project")
     coverage = np.zeros((blend_height, blend_width), dtype=np.uint8)
     for mask, (left, top) in zip(masks, corners):
@@ -1154,11 +937,8 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
             retake_sequences,
         )
 
-    # `coverage` above only inspects the belt the sweeps are expected to reach,
-    # so it read a perfect 1.0 for years while the poles went unphotographed.
-    # Measure the whole sphere as well, weighting each row by cos(latitude)
-    # because an equirectangular row near a pole stands for far less solid
-    # angle than one at the horizon, and report how big the unseen cap is.
+    # Whole-sphere coverage, each row weighted by cos(latitude) because an
+    # equirectangular row near a pole stands for far less solid angle.
     latitudes = np.pi * 0.5 - (np.arange(blend_height, dtype=np.float32) + 0.5) * (np.pi / blend_height)
     row_weights = np.cos(latitudes)
     photographed = (coverage != 0).astype(np.float32)
@@ -1188,6 +968,7 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
 
     matched_pairs = len(pair_reports) - fallback_pairs
     alignment_score = matched_pairs / len(pair_reports)
+    advice, frame_angles = capture_advice(frames, alignment, gains)
     warnings: list[str] = []
     if quick:
         warnings.append("Quick scan: ceiling and floor are soft-filled, not photographed. Use Full scan to capture those views.")
@@ -1206,11 +987,12 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         )
     if fallback_pairs:
         warnings.append(
-            f"{fallback_pairs} overlap{'s used' if fallback_pairs != 1 else ' used'} guided placement because visual detail was limited."
+            f"{fallback_pairs} overlap{'s were' if fallback_pairs != 1 else ' was'} placed from the motion sensors because visual detail was limited."
         )
+    warnings.extend(advice)
     return {
         "ok": True,
-        "method": "opencv-sift-spherical-v4",
+        "method": "opencv-sift-spherical-v5",
         "alignmentScore": round(alignment_score, 3),
         "matchedPairs": matched_pairs,
         "fallbackPairs": fallback_pairs,
@@ -1222,15 +1004,25 @@ def process(args: argparse.Namespace) -> dict[str, Any]:
         "retakeSequences": retake_sequences,
         "warnings": warnings,
         "pairs": pair_reports,
+        "bundle": {
+            "pairs": len(alignment.pairs),
+            "rmsDegrees": round(alignment.rms_degrees, 3),
+            "iterations": alignment.iterations,
+            "droppedPairs": alignment.dropped_pairs,
+            "level": "imu" if any(measured) else "plan",
+        },
+        "frameAngles": frame_angles,
+        "gains": [[round(float(value), 3) for value in gain] for gain in gains],
         "blurScores": [round(frame.blur_score, 1) for frame in frames],
         "imuFrames": len(imu_poses),
-        "crossBand": cross_band_report,
+        "crossBand": cross_band,
         "fusedFrames": sum(1 for frame in frames if frame.fused),
         "sourceWidth": int(np.median([frame.source.shape[1] for frame in frames])),
         "matcher": "sift+superpoint-lightglue" if learned is not None and learned.available() else "sift",
-        "learnedPairs": sum(1 for report in pair_reports if report.get("learned")),
+        "learnedPairs": sum(1 for pair in alignment.pairs if pair.learned),
         "blindPairs": blind_pairs,
-        "horizontalFov": round(effective_fov, 1),
+        "horizontalFov": round(solved_fov, 1),
+        "initialHorizontalFov": round(effective_fov, 1),
         "lensMeasured": lens_measured,
         "blurredFrames": blurred,
     }

@@ -34,8 +34,13 @@ export type CapturedFrame = CaptureSlot & {
   bracketDataUrl?: string;
 };
 
+export type PanoramaMethod =
+  | "opencv-sift-spherical-v3"
+  | "opencv-sift-spherical-v4"
+  | "opencv-sift-spherical-v5";
+
 export type PanoramaQualityReport = {
-  method: "opencv-sift-spherical-v3" | "opencv-sift-spherical-v4";
+  method: PanoramaMethod;
   alignmentScore: number;
   matchedPairs: number;
   fallbackPairs: number;

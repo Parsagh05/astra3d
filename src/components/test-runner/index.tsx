@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { GeneratedRoomViewer } from "@/components/room-capture/generated-room-viewer";
 import studio from "@/components/room-capture/room-capture.module.css";
+import { toPanoramaMethod } from "@/lib/panorama-method";
 import type { GeneratedRoomRecord, PanoramaQualityReport, SharedRoomProject } from "@/types/capture";
 
 import styles from "./test-runner.module.css";
@@ -49,7 +50,7 @@ function parseWarnings(value: string | null) {
 function readQuality(headers: Headers): PanoramaQualityReport {
   const retakes = headers.get("X-Astra3D-Retakes");
   return {
-    method: headers.get("X-Astra3D-Method") === "opencv-sift-spherical-v3" ? "opencv-sift-spherical-v3" : "opencv-sift-spherical-v4",
+    method: toPanoramaMethod(headers.get("X-Astra3D-Method")),
     alignmentScore: Number(headers.get("X-Astra3D-Alignment")) || 0,
     coverage: Number(headers.get("X-Astra3D-Coverage")) || 0,
     coverageScope: headers.get("X-Astra3D-Coverage-Scope") === "eye-level ring" ? "eye-level ring" : "three bands",
