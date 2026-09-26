@@ -1037,6 +1037,23 @@
   font-size: 0.92rem;
 }
 
+.lockStatus {
+  margin: 0.9rem 0 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(99, 230, 190, 0.3);
+  border-radius: 0.7rem;
+  background: rgba(99, 230, 190, 0.07);
+  color: #a6f7df;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.lockStatus[data-state="unsupported"] {
+  border-color: rgba(255, 200, 107, 0.3);
+  background: rgba(255, 200, 107, 0.07);
+  color: #ffe2ad;
+}
+
 .reticle {
   position: absolute;
   z-index: 5;

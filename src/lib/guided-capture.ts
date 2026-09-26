@@ -61,11 +61,17 @@ export function nearestTargetYaw(column: number, heading: number) {
   return base + 360 * Math.round((heading - base) / 360);
 }
 
-export type GuidanceHint = "turn-right" | "turn-left" | "tilt-up" | "tilt-down" | "hold";
+export type GuidanceHint = "turn-right" | "turn-left" | "tilt-up" | "tilt-down" | "straighten" | "hold";
+
+/** Sideways tilt beyond which the phone is asked to be held upright. */
+export const MAX_CAPTURE_ROLL = 8;
 
 /** The single most useful instruction for the current aiming error. */
-export function guidanceHint(yawError: number, pitchError: number, aligned: boolean): GuidanceHint {
+export function guidanceHint(yawError: number, pitchError: number, aligned: boolean, roll = 0): GuidanceHint {
   if (aligned) return "hold";
+  // A tilted photo loses its corners to the correction, so fix that first
+  // once the phone is roughly on target.
+  if (Math.abs(roll) > MAX_CAPTURE_ROLL && Math.abs(yawError) < 15) return "straighten";
   // Pitch is asked for first only when it is clearly the larger problem.
   if (Math.abs(pitchError) > 10 && Math.abs(pitchError) > Math.abs(yawError)) {
     return pitchError > 0 ? "tilt-up" : "tilt-down";
@@ -79,5 +85,6 @@ export const GUIDANCE_HINT_TEXT: Record<GuidanceHint, string> = {
   "turn-left": "Turn left toward the dot",
   "tilt-up": "Tilt up toward the dot",
   "tilt-down": "Tilt down toward the dot",
+  straighten: "Hold the phone upright",
   hold: "Hold still — capturing",
 };

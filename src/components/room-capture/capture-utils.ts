@@ -133,7 +133,9 @@ export type CaptureLockSettings = MediaTrackSettings & {
 /**
  * Builds an `advanced` constraint set that freezes exposure, white balance,
  * and focus at their current values so every still in the sweep matches.
- * Returns null when the camera exposes none of the manual modes.
+ * Cameras that cannot be set to manual but offer "single-shot" measure once
+ * and then hold, which locks just as well.  Returns null when the camera
+ * exposes none of these controls.
  */
 export function buildCaptureLockConstraints(
   capabilities: CaptureLockCapabilities | undefined,
@@ -145,16 +147,46 @@ export function buildCaptureLockConstraints(
     lock.exposureMode = "manual";
     if (Number.isFinite(settings?.exposureTime)) lock.exposureTime = settings?.exposureTime;
     if (Number.isFinite(settings?.iso)) lock.iso = settings?.iso;
+  } else if (capabilities.exposureMode?.includes("single-shot")) {
+    lock.exposureMode = "single-shot";
   }
   if (capabilities.whiteBalanceMode?.includes("manual")) {
     lock.whiteBalanceMode = "manual";
     if (Number.isFinite(settings?.colorTemperature)) lock.colorTemperature = settings?.colorTemperature;
+  } else if (capabilities.whiteBalanceMode?.includes("single-shot")) {
+    lock.whiteBalanceMode = "single-shot";
   }
   if (capabilities.focusMode?.includes("manual")) {
     lock.focusMode = "manual";
     if (Number.isFinite(settings?.focusDistance)) lock.focusDistance = settings?.focusDistance;
+  } else if (capabilities.focusMode?.includes("single-shot")) {
+    lock.focusMode = "single-shot";
   }
   return Object.keys(lock).length > 0 ? (lock as MediaTrackConstraintSet) : null;
+}
+
+export type AppearanceLock = "locked" | "unsupported";
+
+/**
+ * Freezes exposure, white balance and focus on a live camera track.  Called
+ * right after the first photo, so every later photo keeps its brightness and
+ * colour and the laptop has no exposure steps to even out.  Phones whose
+ * browser exposes none of these controls report "unsupported"; the stitcher
+ * then equalises brightness itself.
+ */
+export async function lockCameraAppearance(track: MediaStreamTrack): Promise<AppearanceLock> {
+  const constraints = buildCaptureLockConstraints(
+    track.getCapabilities?.() as CaptureLockCapabilities | undefined,
+    track.getSettings?.() as CaptureLockSettings | undefined,
+  );
+  if (!constraints) return "unsupported";
+  try {
+    await track.applyConstraints({ advanced: [constraints] });
+    return "locked";
+  } catch {
+    // Automatic exposure simply stays on when the lock is rejected.
+    return "unsupported";
+  }
 }
 
 export type LiveStillCapture = {

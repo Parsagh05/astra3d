@@ -2,6 +2,7 @@ import { Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vitest";
 
 import {
+  cameraRoll,
   captureViewLayout,
   deviceQuaternion,
   directionForView,
@@ -57,6 +58,14 @@ describe("device pose", () => {
       const expected = directionForView(view.yaw, view.pitch);
       expect(direction.distanceTo(expected)).toBeLessThan(1e-6);
     }
+  });
+
+  it("measures sideways tilt from gravity, even at the upright gimbal lock", () => {
+    expect(cameraRoll(deviceQuaternion(0, 90, 0))).toBeCloseTo(0, 5);
+    expect(Math.abs(cameraRoll(deviceQuaternion(90, 75, -90)))).toBeCloseTo(15, 3);
+    expect(Math.abs(cameraRoll(deviceQuaternion(60, 102, -90)))).toBeCloseTo(12, 3);
+    // Heading and pitch alone never read as tilt.
+    expect(cameraRoll(deviceQuaternion(210, 125, 0))).toBeCloseTo(0, 5);
   });
 
   it("rebases the heading so the sweep's start direction is yaw zero", () => {

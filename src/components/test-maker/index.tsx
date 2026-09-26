@@ -5,7 +5,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
-import { capturePreviewStill, type PreviewStillCapture } from "@/components/room-capture/capture-utils";
+import {
+  capturePreviewStill,
+  lockCameraAppearance,
+  type AppearanceLock,
+  type PreviewStillCapture,
+} from "@/components/room-capture/capture-utils";
 import { CaptureSphereView, type SphereShot } from "@/components/room-capture/capture-sphere-view";
 import { createPanoramaUpload } from "@/components/room-capture/panorama-api";
 import studio from "@/components/room-capture/room-capture.module.css";
@@ -84,6 +89,7 @@ export function TestMaker() {
   const captureSessionRef = useRef(0);
   const streamRef = useRef<MediaStream | null>(null);
   const captureInFlightRef = useRef(false);
+  const captureLockRef = useRef<MediaStreamTrack | null>(null);
   const captureFrameRef = useRef<() => Promise<void>>(async () => undefined);
 
   const [stage, setStage] = useState<"intro" | "capture" | "review">("intro");
@@ -94,6 +100,7 @@ export function TestMaker() {
   const [caseName, setCaseName] = useState("");
   const [busy, setBusy] = useState<"saving" | "zipping" | null>(null);
   const [savedCase, setSavedCase] = useState<SavedCase | null>(null);
+  const [appearanceLock, setAppearanceLock] = useState<AppearanceLock | null>(null);
 
   const handleAutoCapture = useCallback(() => void captureFrameRef.current(), []);
   const {
@@ -121,8 +128,18 @@ export function TestMaker() {
     stopGuidance();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    captureLockRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, [stopGuidance]);
+
+  // Same as the studio: freeze exposure, white balance and focus right after
+  // the first photo so the whole case shares one brightness and colour.
+  const lockCaptureAppearance = useCallback(async () => {
+    const track = streamRef.current?.getVideoTracks?.()[0];
+    if (!track || captureLockRef.current === track) return;
+    captureLockRef.current = track;
+    setAppearanceLock(await lockCameraAppearance(track));
+  }, []);
 
   const releaseThumbnails = useCallback(() => {
     thumbnailUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -210,6 +227,7 @@ export function TestMaker() {
       }
       const count = addFrame(capture, pose, capturedAt);
       afterCapture(count, totalCaptureSlots);
+      void lockCaptureAppearance();
     } catch (captureError) {
       if (session !== captureSessionRef.current) return;
       stopGuidance();
@@ -217,7 +235,7 @@ export function TestMaker() {
     } finally {
       captureInFlightRef.current = false;
     }
-  }, [addFrame, afterCapture, capturePose, statusRef, stopGuidance, totalCaptureSlots]);
+  }, [addFrame, afterCapture, capturePose, lockCaptureAppearance, statusRef, stopGuidance, totalCaptureSlots]);
 
   useEffect(() => {
     captureFrameRef.current = captureFrame;
@@ -231,6 +249,7 @@ export function TestMaker() {
 
   const beginCapture = () => {
     resetGuidance();
+    setAppearanceLock(null);
     clearFrames();
     setError(null);
     setSavedCase(null);
@@ -537,6 +556,13 @@ export function TestMaker() {
                     </div>
                   ))}
                 </div>
+{appearanceLock ? (
+                  <p className={studio.lockStatus} data-state={appearanceLock} role="status">
+                    {appearanceLock === "locked"
+                      ? "Exposure and colour locked after photo 1, so every photo matches."
+                      : "This browser can't lock exposure; the laptop evens out brightness instead."}
+                  </p>
+                ) : null}
                 {frames.length > 0 ? (
                   <div className={styles.thumbnails}>
                     {frames.map((frame) => (

@@ -15,10 +15,10 @@ function tilt(alpha: number, beta: number, gamma = 0) {
 }
 
 /** Holds the phone still for `ms`, sampling at 50 Hz like a real sensor. */
-function hold(alpha: number, beta: number, ms = 700) {
+function hold(alpha: number, beta: number, ms = 700, gamma = 0) {
   for (let elapsed = 0; elapsed < ms; elapsed += 20) {
     act(() => {
-      tilt(alpha, beta);
+      tilt(alpha, beta, gamma);
       vi.advanceTimersByTime(20);
     });
   }
@@ -95,6 +95,18 @@ describe("useGuidedCapture", () => {
     expect(hook.result.current.engineRef.current.target).toEqual({ yaw: 360, pitch: 50 });
     // Back to the sweep's first heading, tilted up 50°: captured.
     hold(0, 140);
+    expect(onAutoCapture).toHaveBeenCalled();
+  });
+
+  it("refuses a sideways-tilted photo and asks for an upright phone", async () => {
+    const { hook, onAutoCapture } = await startScanning(EYE_LEVEL_ONLY);
+    onAutoCapture.mockClear();
+    // Facing target 1 but tilted 15° sideways (what a phone reports there).
+    hold(90, 75, 900, -90);
+    expect(onAutoCapture).not.toHaveBeenCalled();
+    expect(hook.result.current.engineRef.current.hint).toBe("straighten");
+    // Within 3° of upright: captured.
+    hold(90, 87, 900, -90);
     expect(onAutoCapture).toHaveBeenCalled();
   });
 

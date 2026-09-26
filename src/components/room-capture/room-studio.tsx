@@ -22,13 +22,12 @@ import type { CapturedFrame, GeneratedRoomRecord } from "@/types/capture";
 import type { SharedRoomProject } from "@/types/capture";
 
 import {
-  buildCaptureLockConstraints,
   buildCaptureSlots,
   CAPTURE_COLUMNS,
   capturePreviewStill,
   getCaptureProgress,
-  type CaptureLockCapabilities,
-  type CaptureLockSettings,
+  lockCameraAppearance,
+  type AppearanceLock,
   type PreviewStillCapture,
 } from "./capture-utils";
 import { GeneratedRoomViewer } from "./generated-room-viewer";
@@ -110,6 +109,7 @@ export function RoomStudio() {
   const [zoomRange, setZoomRange] = useState<ZoomRange>(defaultZoomRange);
   const [cameraLenses, setCameraLenses] = useState<CameraLens[]>([]);
   const [activeCameraId, setActiveCameraId] = useState("");
+  const [appearanceLock, setAppearanceLock] = useState<AppearanceLock | null>(null);
 
   const nextSlot = captureSlots[frames.length];
   const activeSlot = retakeSequence === null
@@ -124,26 +124,16 @@ export function RoomStudio() {
     : activeSlot?.column ?? 0;
   const captureComplete = frames.length === totalCaptureSlots;
 
+  // Locks exposure, white balance and focus once per camera track, right
+  // after the first photo, so every later photo matches it.
   const lockCaptureAppearance = useCallback(async () => {
     const track = streamRef.current?.getVideoTracks?.()[0];
     if (!track || captureLockRef.current === track) return;
     captureLockRef.current = track;
-    const constraints = buildCaptureLockConstraints(
-      track.getCapabilities?.() as CaptureLockCapabilities | undefined,
-      track.getSettings?.() as CaptureLockSettings | undefined,
-    );
-    if (!constraints) return;
-    try {
-      // Freezing exposure, white balance, and focus keeps all 24 stills
-      // consistent so the laptop blends seams without color steps.
-      await track.applyConstraints({ advanced: [constraints] });
-    } catch {
-      // Automatic exposure simply stays on when manual mode is rejected.
-    }
+    setAppearanceLock(await lockCameraAppearance(track));
   }, []);
 
   const handleAutoCapture = useCallback(() => void captureFrameRef.current(), []);
-  const handleScanningStart = useCallback(() => void lockCaptureAppearance(), [lockCaptureAppearance]);
   const {
     status: autoScanStatus,
     mode: captureMode,
@@ -161,7 +151,6 @@ export function RoomStudio() {
   } = useGuidedCapture({
     bands: captureBands,
     onAutoCapture: handleAutoCapture,
-    onScanningStart: handleScanningStart,
     onNotice: setError,
   });
 
@@ -355,6 +344,7 @@ export function RoomStudio() {
 
   const beginCapture = () => {
     resetGuidance();
+    setAppearanceLock(null);
     framesRef.current = [];
     setFrames([]);
     releaseThumbnails();
@@ -419,6 +409,7 @@ export function RoomStudio() {
       // the laptop. No second exposure or silent repeated photo on the phone.
       addFrame(capture, pose, capturedAt);
       afterCapture(framesRef.current.length, totalCaptureSlots);
+      void lockCaptureAppearance();
     } catch (captureError) {
       if (session !== captureSessionRef.current) return;
       stopGuidance();
@@ -426,7 +417,7 @@ export function RoomStudio() {
     } finally {
       captureInFlightRef.current = false;
     }
-  }, [addFrame, afterCapture, capturePose, captureZoom, statusRef, stopGuidance, totalCaptureSlots, zoomRange.hardware]);
+  }, [addFrame, afterCapture, capturePose, captureZoom, lockCaptureAppearance, statusRef, stopGuidance, totalCaptureSlots, zoomRange.hardware]);
 
   useEffect(() => {
     captureFrameRef.current = captureFrame;
@@ -905,6 +896,13 @@ export function RoomStudio() {
                     </div>
                   ))}
                 </div>
+{appearanceLock ? (
+                  <p className={styles.lockStatus} data-state={appearanceLock} role="status">
+                    {appearanceLock === "locked"
+                      ? "Exposure and colour locked after photo 1, so every photo matches."
+                      : "This browser can't lock exposure; the laptop evens out brightness instead."}
+                  </p>
+                ) : null}
                 {frames.length > 0 ? (
                   <div className={styles.retakeMap}>
                     <div><strong>Review & retake</strong><small>Tap any captured thumbnail.</small></div>

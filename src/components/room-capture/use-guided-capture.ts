@@ -16,7 +16,7 @@ import {
 import type { CaptureOrientation } from "@/types/capture";
 
 import { updateCaptureGuidance, type CaptureGuidanceState } from "./capture-guidance";
-import { currentScreenAngle, deviceQuaternion, type ViewQuaternion } from "./device-pose";
+import { cameraRoll, currentScreenAngle, deviceQuaternion, type ViewQuaternion } from "./device-pose";
 
 export type AutoScanStatus = "idle" | "countdown" | "scanning" | "between" | "complete";
 export type CaptureMode = "automatic" | "manual";
@@ -208,10 +208,12 @@ export function useGuidedCapture({ bands, onAutoCapture, onScanningStart, onNoti
       // Yaw is signed: targets advance clockwise (turning right), the order
       // the stitcher assembles.  Pitch is absolute, straight from gravity.
       const target = { yaw: nearestTargetYaw(aimRef.current.column, tracker.heading), pitch: band.pitch };
+      const roll = cameraRoll(engine.pose);
       const result = updateCaptureGuidance(guidanceRef.current, {
         time: performance.now(),
         yaw: tracker.heading,
         pitch: view.pitch,
+        roll,
       }, target);
       guidanceRef.current = result.state;
       engine.target = target;
@@ -219,7 +221,7 @@ export function useGuidedCapture({ bands, onAutoCapture, onScanningStart, onNoti
       engine.holdProgress = result.guidance.holdProgress;
       engine.yawError = result.guidance.yawError;
       engine.pitchError = result.guidance.pitchError;
-      engine.hint = guidanceHint(result.guidance.yawError, result.guidance.pitchError, result.guidance.aligned);
+      engine.hint = guidanceHint(result.guidance.yawError, result.guidance.pitchError, result.guidance.aligned, roll);
 
       if (result.ready) callbacksRef.current.onAutoCapture();
     };

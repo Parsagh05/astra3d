@@ -146,6 +146,25 @@ export function captureViewLayout(width: number, height: number, sphere: boolean
   };
 }
 
+const scratchUp = new Vector3();
+const scratchForward = new Vector3();
+const scratchRight = new Vector3();
+const scratchLevelUp = new Vector3();
+
+/**
+ * Sideways tilt of the picture relative to gravity, in degrees (0 upright).
+ * Includes the screen rotation, so it describes the photo as it is saved.
+ */
+export function cameraRoll(camera: Quaternion) {
+  scratchForward.set(0, 0, -1).applyQuaternion(camera);
+  scratchUp.set(0, 1, 0).applyQuaternion(camera);
+  scratchRight.crossVectors(scratchForward, Y_AXIS);
+  if (scratchRight.lengthSq() < 1e-8) return 0;
+  scratchRight.normalize();
+  scratchLevelUp.crossVectors(scratchRight, scratchForward);
+  return MathUtils.radToDeg(Math.atan2(-scratchUp.dot(scratchRight), scratchUp.dot(scratchLevelUp)));
+}
+
 export function currentScreenAngle() {
   if (typeof window === "undefined") return 0;
   const angle = window.screen?.orientation?.angle ??
