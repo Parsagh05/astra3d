@@ -21,7 +21,7 @@ describe("automatic capture guidance", () => {
     let ready = false;
     for (let time = 0; time <= 1000; time += 20) {
       const result = updateCaptureGuidance(state, {
-        time, yaw: 5.7 + 0.7 * Math.sin(time / 60), pitch: 0,
+        time, yaw: 3.7 + 0.7 * Math.sin(time / 60), pitch: 0,
       }, { yaw: 0, pitch: 0 });
       state = result.state;
       expect(result.guidance.aligned).toBe(true);

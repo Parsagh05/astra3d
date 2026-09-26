@@ -1,3 +1,4 @@
+import { isPanoramaMethod } from "@/lib/panorama-method";
 import { listProjects, savePanoramaProject } from "@/server/project-store";
 import type { PanoramaQualityReport } from "@/types/capture";
 
@@ -18,8 +19,7 @@ function parseQuality(value: FormDataEntryValue | null) {
   try {
     const candidate = JSON.parse(value) as Partial<PanoramaQualityReport>;
     if (
-      (candidate.method !== "opencv-sift-spherical-v3" &&
-        candidate.method !== "opencv-sift-spherical-v4") ||
+      !isPanoramaMethod(candidate.method) ||
       !Number.isFinite(candidate.alignmentScore) ||
       !Number.isFinite(candidate.coverage) ||
       !Number.isInteger(candidate.matchedPairs) ||

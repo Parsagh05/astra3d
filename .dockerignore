@@ -37,7 +37,7 @@ Thumbs.db
 
 # Testing
 coverage
-.playwright-report
+playwright-report
 test-results
 
 # Project data (should be volume-mounted)
@@ -56,5 +56,5 @@ scripts/models
 
 # Docker
 Dockerfile
-docker-compose.yml
+docker-compose*.yml
 .dockerignore

@@ -1,260 +1,370 @@
 "use client";
 
+import { ArrowLeft, Camera, CheckCircle2, CircleAlert, FolderInput, Loader2, Play, PlayCircle, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
 import { GeneratedRoomViewer } from "@/components/room-capture/generated-room-viewer";
-import type { GeneratedRoomRecord, PanoramaQualityReport } from "@/types/capture";
+import studio from "@/components/room-capture/room-capture.module.css";
+import { toPanoramaMethod } from "@/lib/panorama-method";
+import type { GeneratedRoomRecord, PanoramaQualityReport, SharedRoomProject } from "@/types/capture";
+
+import styles from "./test-runner.module.css";
 
 type TestCaseInfo = {
-  name: string;
-  extent: "12-images" | "36-images";
-  imageCount: number;
   path: string;
+  name: string;
+  group: string;
+  extent: "quick" | "full";
+  imageCount: number;
+  hasImu: boolean;
+  createdAt?: string;
+  source?: string;
 };
 
-type TestState = {
-  status: "idle" | "loading" | "running" | "error";
-  error?: string;
-  result?: {
-    room: GeneratedRoomRecord;
-  };
-};
+type InvalidTestCase = { path: string; imageCount: number; reason: string };
 
-function parseQualityReport(headers: Headers): PanoramaQualityReport {
-  const retakeHeader = headers.get("X-Astra3D-Retakes");
-  const methodHeader = headers.get("X-Astra3D-Method");
-  
+/** One runnable capture: a fixture in test-cases/ or a saved studio project. */
+type Source =
+  | { kind: "case"; id: string; name: string; photoCount: number; detail: string; testCase: TestCaseInfo }
+  | { kind: "project"; id: string; name: string; photoCount: number; detail: string; project: SharedRoomProject };
+
+type RunResult =
+  | { status: "running" }
+  | { status: "passed" | "warning"; room: GeneratedRoomRecord; quality: PanoramaQualityReport; durationMs: number; size: string }
+  | { status: "failed"; error: string; durationMs?: number };
+
+const CLIENT_HEADERS = { "Content-Type": "application/json", "X-Astra3D-Client": "room-studio-v1" };
+
+function parseWarnings(value: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function readQuality(headers: Headers): PanoramaQualityReport {
+  const retakes = headers.get("X-Astra3D-Retakes");
   return {
-    method: (methodHeader as PanoramaQualityReport["method"]) ?? "opencv-sift-spherical-v4",
+    method: toPanoramaMethod(headers.get("X-Astra3D-Method")),
     alignmentScore: Number(headers.get("X-Astra3D-Alignment")) || 0,
     coverage: Number(headers.get("X-Astra3D-Coverage")) || 0,
-    coverageScope: headers.get("X-Astra3D-Coverage-Scope") as "eye-level ring" | "three bands" | undefined,
+    coverageScope: headers.get("X-Astra3D-Coverage-Scope") === "eye-level ring" ? "eye-level ring" : "three bands",
     matchedPairs: Number(headers.get("X-Astra3D-Matched-Pairs")) || 0,
-    fallbackPairs: 0,
-    retakeSequences: retakeHeader
-      ? retakeHeader.split(",").map(Number).filter((v) => Number.isInteger(v) && v >= 0)
-      : [],
-    warnings: [],
+    fallbackPairs: Number(headers.get("X-Astra3D-Fallback-Pairs")) || 0,
+    retakeSequences: retakes ? retakes.split(",").map(Number).filter((value) => Number.isInteger(value) && value >= 0) : [],
+    warnings: parseWarnings(headers.get("X-Astra3D-Warnings")),
   };
 }
 
+function sourceKey(source: Source) {
+  return `${source.kind}:${source.id}`;
+}
+
+function percent(value: number) {
+  return `${Math.round(value * 100)}%`;
+}
+
+function seconds(ms?: number) {
+  return ms === undefined ? "—" : `${(ms / 1000).toFixed(1)} s`;
+}
+
+/**
+ * Re-runs fixed captures through the current stitcher: the committed
+ * fixtures in test-cases/ and every studio capture saved on this laptop.
+ */
 export function TestRunner() {
   const [testCases, setTestCases] = useState<TestCaseInfo[]>([]);
+  const [invalid, setInvalid] = useState<InvalidTestCase[]>([]);
+  const [projects, setProjects] = useState<SharedRoomProject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [testState, setTestState] = useState<TestState>({ status: "idle" });
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const initRef = useRef(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, RunResult>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const fetchTestCases = useCallback(async () => {
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      const response = await fetch("/api/tests");
-      const data = await response.json() as { testCases: TestCaseInfo[]; error?: string };
-      if (data.error) {
-        console.error("Failed to fetch test cases:", data.error);
-      }
-      setTestCases(data.testCases || []);
-    } catch (err) {
-      console.error("Failed to fetch test cases:", err);
+      const [casesResponse, projectsResponse] = await Promise.all([
+        fetch("/api/tests", { cache: "no-store" }),
+        fetch("/api/projects", { cache: "no-store" }),
+      ]);
+      const casesPayload = await casesResponse.json() as { testCases?: TestCaseInfo[]; invalid?: InvalidTestCase[]; error?: string };
+      const projectsPayload = await projectsResponse.json().catch(() => ({})) as { projects?: SharedRoomProject[] };
+      setTestCases(casesPayload.testCases ?? []);
+      setInvalid(casesPayload.invalid ?? []);
+      setProjects((projectsPayload.projects ?? []).filter((project) => project.hasSourceFrames));
+      if (casesPayload.error) setLoadError(casesPayload.error);
+    } catch {
+      setLoadError("The test list could not be loaded. Is the Astra3D server running?");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!initRef.current) {
-      initRef.current = true;
-      fetchTestCases();
-    }
-  }, [fetchTestCases]);
+    const request = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(request);
+  }, [refresh]);
 
-  const runTest = useCallback(async (testCase: TestCaseInfo) => {
-    setSelectedPath(testCase.path);
-    setTestState({ status: "running" });
+  const caseSources = useMemo<Source[]>(() => testCases.map((testCase) => ({
+    kind: "case",
+    id: testCase.path,
+    name: testCase.name,
+    photoCount: testCase.imageCount,
+    detail: `${testCase.path}${testCase.hasImu ? " · motion data" : ""}`,
+    testCase,
+  })), [testCases]);
+  const projectSources = useMemo<Source[]>(() => projects.map((project) => ({
+    kind: "project",
+    id: project.id,
+    name: project.name,
+    photoCount: project.photoCount,
+    detail: `Saved ${new Date(project.createdAt).toLocaleString()}`,
+    project,
+  })), [projects]);
 
+  const run = useCallback(async (source: Source) => {
+    const key = sourceKey(source);
+    setSelected(key);
+    setResults((current) => ({ ...current, [key]: { status: "running" } }));
+    const started = performance.now();
     try {
       const response = await fetch("/api/tests/run", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: testCase.path, extent: testCase.extent }),
+        headers: CLIENT_HEADERS,
+        body: JSON.stringify(source.kind === "case" ? { path: source.id } : { projectId: source.id }),
       });
-
       if (!response.ok) {
-        const errorData = await response.json() as { error?: string };
-        throw new Error(errorData.error || `HTTP ${response.status}`);
+        const payload = await response.json().catch(() => ({})) as { error?: string; durationMs?: number };
+        setResults((current) => ({
+          ...current,
+          [key]: { status: "failed", error: payload.error ?? `HTTP ${response.status}`, durationMs: payload.durationMs },
+        }));
+        return;
       }
-
-      const blob = await response.blob();
-      const quality = parseQualityReport(response.headers);
-
+      const panorama = await response.blob();
+      const quality = readQuality(response.headers);
+      const durationMs = Number(response.headers.get("X-Astra3D-Duration-Ms")) || performance.now() - started;
       const room: GeneratedRoomRecord = {
-        id: "latest-room" as const,
-        name: `${testCase.name} (${testCase.extent})`,
+        id: "latest-room",
+        name: source.name,
         createdAt: new Date().toISOString(),
-        photoCount: testCase.imageCount,
-        panorama: blob,
+        photoCount: source.photoCount,
+        panorama,
         processor: "laptop",
         quality,
         hasSourceFrames: true,
       };
-
-      setTestState({ status: "idle", result: { room } });
-    } catch (err) {
-      setTestState({
-        status: "error",
-        error: err instanceof Error ? err.message : "Unknown error",
-      });
+      setResults((current) => ({
+        ...current,
+        [key]: {
+          status: quality.retakeSequences.length > 0 || quality.warnings.length > 0 ? "warning" : "passed",
+          room,
+          quality,
+          durationMs,
+          size: `${response.headers.get("X-Astra3D-Width")}×${response.headers.get("X-Astra3D-Height")}`,
+        },
+      }));
+    } catch (error) {
+      setResults((current) => ({
+        ...current,
+        [key]: { status: "failed", error: error instanceof Error ? error.message : "The run failed." },
+      }));
     }
   }, []);
 
-  const groupedCases = testCases.reduce((acc, tc) => {
-    if (!acc[tc.extent]) acc[tc.extent] = [];
-    acc[tc.extent].push(tc);
-    return acc;
-  }, {} as Record<string, TestCaseInfo[]>);
+  const runAll = async () => {
+    setBatchRunning(true);
+    for (const source of caseSources) await run(source);
+    setBatchRunning(false);
+  };
+
+  const promote = async (project: SharedRoomProject) => {
+    setNotice(null);
+    const response = await fetch("/api/tests/promote", {
+      method: "POST",
+      headers: CLIENT_HEADERS,
+      body: JSON.stringify({ projectId: project.id, name: project.name }),
+    });
+    const payload = await response.json().catch(() => ({})) as { testCase?: TestCaseInfo; error?: string };
+    if (!response.ok || !payload.testCase) {
+      setNotice(payload.error ?? "The capture could not be copied into test-cases/.");
+      return;
+    }
+    setNotice(`Copied to test-cases/${payload.testCase.path}. Commit it to keep it with the project.`);
+    await refresh();
+  };
+
+  const anyRunning = Object.values(results).some((result) => result.status === "running");
+  const selectedResult = selected ? results[selected] : undefined;
+  const selectedSource = [...caseSources, ...projectSources].find((source) => sourceKey(source) === selected);
+  const summary = caseSources.reduce(
+    (counts, source) => {
+      const result = results[sourceKey(source)];
+      if (result?.status === "passed") counts.passed += 1;
+      else if (result?.status === "warning") counts.warning += 1;
+      else if (result?.status === "failed") counts.failed += 1;
+      return counts;
+    },
+    { passed: 0, warning: 0, failed: 0 },
+  );
+
+  const renderRow = (source: Source) => {
+    const key = sourceKey(source);
+    const result = results[key];
+    return (
+      <li key={key} className={styles.row} data-selected={selected === key} data-status={result?.status ?? "idle"}>
+        <button type="button" className={styles.rowMain} onClick={() => setSelected(key)} disabled={!result}>
+          <span className={styles.statusIcon} aria-hidden="true">
+            {result?.status === "running" ? <Loader2 /> : result?.status === "failed" ? <CircleAlert /> : result ? <CheckCircle2 /> : <PlayCircle />}
+          </span>
+          <span>
+            <strong>{source.name}</strong>
+            <small>{source.photoCount} photos · {source.detail}</small>
+            {result && result.status !== "running" ? (
+              <small className={styles.metrics}>
+                {result.status === "failed"
+                  ? result.error
+                  : `align ${percent(result.quality.alignmentScore)} · coverage ${percent(result.quality.coverage)} · ${result.quality.matchedPairs} pairs · ${seconds(result.durationMs)}`}
+              </small>
+            ) : null}
+          </span>
+        </button>
+        <div className={styles.rowActions}>
+          {source.kind === "project" ? (
+            <button type="button" onClick={() => void promote(source.project)} disabled={anyRunning} aria-label={`Save ${source.name} as a test case`}>
+              <FolderInput aria-hidden="true" /> Keep
+            </button>
+          ) : null}
+          <button type="button" onClick={() => void run(source)} disabled={anyRunning} aria-label={`Run ${source.name}`}>
+            <Play aria-hidden="true" /> Run
+          </button>
+        </div>
+      </li>
+    );
+  };
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--color-surface-0)" }}>
-      <header style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "1rem 2rem",
-        borderBottom: "1px solid var(--color-line)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <BrandMark />
-          <span style={{ color: "var(--color-muted)" }}>Test Runner</span>
-        </div>
-        <Link href="/" style={{ color: "var(--color-muted)", fontSize: "0.875rem" }}>
-          ← Back to site
-        </Link>
+    <div className={studio.studioShell}>
+      <header className={studio.studioHeader}>
+        <Link href="/" aria-label="Astra3D home"><BrandMark /></Link>
+        <div><span /> Tests · panorama pipeline</div>
+        <Link href="/test-maker" className={studio.backLink}><Camera aria-hidden="true" /> Test maker</Link>
       </header>
 
-      <main style={{ display: "flex", height: "calc(100vh - 65px)" }}>
-        <aside style={{
-          width: "320px",
-          borderRight: "1px solid var(--color-line)",
-          overflow: "auto",
-          padding: "1.5rem",
-        }}>
-          <h1 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "1.5rem" }}>
-            Test Cases
-          </h1>
-
-          {loading ? (
-            <p style={{ color: "var(--color-muted)" }}>Loading...</p>
-          ) : testCases.length === 0 ? (
+      <main className={`${studio.studioMain} ${styles.layout}`}>
+        <section className={styles.sidebar} aria-labelledby="tests-title">
+          <div className={styles.sidebarHeader}>
             <div>
-              <p style={{ color: "var(--color-muted)", marginBottom: "1rem" }}>
-                No test cases found.
+              <p className={studio.kicker}>Regression runs</p>
+              <h1 id="tests-title">Tests</h1>
+            </div>
+            <button type="button" className={styles.iconButton} onClick={() => void refresh()} aria-label="Reload test list" disabled={loading}>
+              <RefreshCw aria-hidden="true" />
+            </button>
+          </div>
+
+          {loadError ? <p className={studio.errorMessage} role="alert">{loadError}</p> : null}
+          {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+
+          <div className={styles.group}>
+            <div className={styles.groupHeader}>
+              <h2>Test cases <small>test-cases/</small></h2>
+              <button type="button" onClick={() => void runAll()} disabled={anyRunning || caseSources.length === 0}>
+                <PlayCircle aria-hidden="true" /> {batchRunning ? "Running…" : "Run all"}
+              </button>
+            </div>
+            {caseSources.length > 0 && (summary.passed + summary.warning + summary.failed) > 0 ? (
+              <p className={styles.summary}>
+                <span data-kind="passed">{summary.passed} clean</span>
+                <span data-kind="warning">{summary.warning} with warnings</span>
+                <span data-kind="failed">{summary.failed} failed</span>
               </p>
-              <p style={{ color: "var(--color-muted)", fontSize: "0.875rem" }}>
-                Add test cases to <code style={{ background: "var(--color-surface-2)", padding: "0.25rem 0.5rem", borderRadius: "0.25rem" }}>test-cases/</code> directory.
-              </p>
-              <div style={{ marginTop: "1rem", fontSize: "0.875rem", color: "var(--color-muted)" }}>
-                <p style={{ marginBottom: "0.5rem" }}>Structure:</p>
-                <pre style={{ background: "var(--color-surface-2)", padding: "0.75rem", borderRadius: "0.5rem", overflow: "auto" }}>
-{`test-cases/
-├── 12-images/
-│   └── case-001/
-│       ├── 01.jpg
-│       └── ...
-└── 36-images/
-    └── case-001/
-        ├── 01.jpg
-        └── ...`}
-                </pre>
+            ) : null}
+            {loading ? <p className={styles.empty}>Loading…</p> : caseSources.length === 0 ? (
+              <div className={styles.empty}>
+                <p>No test cases yet. Capture one with the <Link href="/test-maker">Test maker</Link>, or keep a saved capture below.</p>
+                <pre>{`test-cases/
+├── 12-images/<case>/01.jpg … 12.jpg
+└── 36-images/<case>/01.jpg … 36.jpg`}</pre>
               </div>
+            ) : (
+              <ul className={styles.list}>{caseSources.map(renderRow)}</ul>
+            )}
+            {invalid.length > 0 ? (
+              <details className={styles.invalid}>
+                <summary>{invalid.length} folder{invalid.length === 1 ? "" : "s"} skipped</summary>
+                <ul>{invalid.map((item) => <li key={item.path}><code>{item.path}</code> — {item.reason}</li>)}</ul>
+              </details>
+            ) : null}
+          </div>
+
+          <div className={styles.group}>
+            <div className={styles.groupHeader}>
+              <h2>Saved captures <small>.astra3d-data/</small></h2>
+            </div>
+            {loading ? null : projectSources.length === 0 ? (
+              <p className={styles.empty}>Rooms captured in the <Link href="/studio">studio</Link> keep their original photos here and can be re-run with every new algorithm.</p>
+            ) : (
+              <ul className={styles.list}>{projectSources.map(renderRow)}</ul>
+            )}
+          </div>
+        </section>
+
+        <section className={styles.result} aria-live="polite">
+          {!selectedResult ? (
+            <div className={styles.placeholder}>
+              <PlayCircle aria-hidden="true" />
+              <p>Run a test case to stitch it with the current algorithm.</p>
+              <small>Nothing is saved — the panorama and its quality report are shown here.</small>
+            </div>
+          ) : selectedResult.status === "running" ? (
+            <div className={styles.placeholder}>
+              <Loader2 aria-hidden="true" className={styles.spin} />
+              <p>Stitching {selectedSource?.name}…</p>
+              <small>Feature matching, exposure compensation and blending run on this computer.</small>
+            </div>
+          ) : selectedResult.status === "failed" ? (
+            <div className={styles.placeholder} data-failed="true">
+              <CircleAlert aria-hidden="true" />
+              <p>{selectedSource?.name} failed</p>
+              <small>{selectedResult.error}</small>
             </div>
           ) : (
-            Object.entries(groupedCases).map(([extent, cases]) => (
-              <div key={extent} style={{ marginBottom: "2rem" }}>
-                <h2 style={{ fontSize: "0.875rem", color: "var(--color-muted)", marginBottom: "0.75rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  {extent.replace("-", " ")} — {cases.length} case{cases.length !== 1 ? "s" : ""}
-                </h2>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  {cases.map((tc) => (
-                    <button
-                      key={tc.path}
-                      onClick={() => void runTest(tc)}
-                      disabled={testState.status === "running"}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "0.75rem 1rem",
-                        background: selectedPath === tc.path ? "var(--color-surface-2)" : "transparent",
-                        border: "1px solid var(--color-line)",
-                        borderRadius: "0.5rem",
-                        color: "var(--color-ice)",
-                        cursor: testState.status === "running" ? "not-allowed" : "pointer",
-                        textAlign: "left",
-                        opacity: testState.status === "running" ? 0.6 : 1,
-                      }}
-                    >
-                      <span>{tc.name}</span>
-                      <span style={{ color: "var(--color-muted)", fontSize: "0.75rem" }}>
-                        {tc.imageCount} img
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))
-          )}
-        </aside>
-
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {testState.status === "idle" && !testState.result ? (
-            <div style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--color-muted)",
-            }}>
-              <div style={{ textAlign: "center" }}>
-                <p style={{ marginBottom: "0.5rem" }}>Select a test case to run</p>
-                <p style={{ fontSize: "0.875rem" }}>The panorama will be processed and displayed here</p>
-              </div>
-            </div>
-          ) : testState.status === "running" ? (
-            <div style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--color-muted)",
-            }}>
-              <div style={{ textAlign: "center" }}>
-                <p style={{ marginBottom: "0.5rem" }}>Processing test case...</p>
-                <p style={{ fontSize: "0.875rem" }}>Running panorama pipeline</p>
-              </div>
-            </div>
-          ) : testState.status === "error" ? (
-            <div style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--color-muted)",
-            }}>
-              <div style={{ textAlign: "center", color: "#ff6b6b" }}>
-                <p style={{ marginBottom: "0.5rem" }}>Error</p>
-                <p style={{ fontSize: "0.875rem" }}>{testState.error}</p>
-              </div>
-            </div>
-          ) : testState.result ? (
-            <div style={{ flex: 1 }}>
+            <>
+              <dl className={styles.report}>
+                <div><dt>Matched pairs</dt><dd>{selectedResult.quality.matchedPairs}</dd></div>
+                <div><dt>Fallback pairs</dt><dd>{selectedResult.quality.fallbackPairs}</dd></div>
+                <div><dt>Output</dt><dd>{selectedResult.size}</dd></div>
+                <div><dt>Time</dt><dd>{seconds(selectedResult.durationMs)}</dd></div>
+              </dl>
+              {selectedResult.quality.warnings.length > 0 || selectedResult.quality.retakeSequences.length > 0 ? (
+                <ul className={styles.warnings}>
+                  {selectedResult.quality.retakeSequences.length > 0 ? (
+                    <li>Suggested retakes: photos {selectedResult.quality.retakeSequences.map((sequence) => sequence + 1).join(", ")}</li>
+                  ) : null}
+                  {selectedResult.quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              ) : null}
               <GeneratedRoomViewer
-                room={testState.result.room}
-                onRetake={() => setTestState({ status: "idle" })}
+                key={selected}
+                room={selectedResult.room}
+                onRetake={() => setSelected(null)}
               />
-            </div>
-          ) : null}
-        </div>
+            </>
+          )}
+          <Link href="/test-maker" className={styles.backToMaker}>
+            <ArrowLeft aria-hidden="true" /> Capture another test case
+          </Link>
+        </section>
       </main>
     </div>
   );

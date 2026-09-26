@@ -1,4 +1,5 @@
 import { TOTAL_CAPTURE_SLOTS, type CaptureExtent } from "@/lib/capture-plan";
+import { toPanoramaMethod } from "@/lib/panorama-method";
 import type { CapturedFrame, PanoramaQualityReport } from "@/types/capture";
 
 export type PanoramaProcessingPhase =
@@ -124,9 +125,7 @@ function readQualityReport(request: XMLHttpRequest): PanoramaQualityReport {
   const retakeHeader = request.getResponseHeader("X-Astra3D-Retakes");
   const methodHeader = request.getResponseHeader("X-Astra3D-Method");
   return {
-    method: methodHeader === "opencv-sift-spherical-v3"
-      ? methodHeader
-      : "opencv-sift-spherical-v4",
+    method: toPanoramaMethod(methodHeader),
     alignmentScore: numberHeader(request, "X-Astra3D-Alignment", 0),
     coverage: numberHeader(request, "X-Astra3D-Coverage", 0),
     coverageScope: request.getResponseHeader("X-Astra3D-Coverage-Scope") === "eye-level ring" ? "eye-level ring" : "three bands",

@@ -1,4 +1,5 @@
-type MotionSample = { time: number; yaw: number; pitch: number };
+/** Roll is the sideways tilt of the picture, in degrees; 0 is upright. */
+type MotionSample = { time: number; yaw: number; pitch: number; roll?: number };
 
 export type CaptureGuidanceState = MotionSample & {
   targetYaw: number;
@@ -10,6 +11,18 @@ export type CaptureGuidanceState = MotionSample & {
 };
 
 const HOLD_MS = 450;
+/**
+ * How close a photo must be to its target, in degrees: entering / staying.
+ * Heading matches the ring (the dot is inside it at 4°), which keeps turns
+ * between photos near the planned 30° so neighbours overlap by about 20°.
+ * Loose limits let 19-39° turns, 10° dips and 22° tilts through, and each
+ * cost the stitcher overlap or photographed ceiling and floor.
+ */
+export const ALIGN_LIMITS = {
+  yaw: [4, 6],
+  pitch: [8, 10],
+  roll: [8, 10],
+} as const;
 const SMOOTHING_MS = 120;
 const MOTION_WINDOW_MS = 180;
 
@@ -34,10 +47,13 @@ export function updateCaptureGuidance(
 
   // A slightly wider release zone prevents small hand tremors from repeatedly
   // losing a target. Raw bounds prevent smoothing from hiding a real overshoot.
-  const aligned = Math.abs(yawError) <= (prior?.aligned ? 8 : 6) &&
-    Math.abs(pitchError) <= (prior?.aligned ? 15 : 12) &&
-    Math.abs(target.yaw - sample.yaw) <= 8 &&
-    Math.abs(target.pitch - sample.pitch) <= 15;
+  const zone = prior?.aligned ? 1 : 0;
+  const roll = sample.roll ?? 0;
+  const aligned = Math.abs(yawError) <= ALIGN_LIMITS.yaw[zone] &&
+    Math.abs(pitchError) <= ALIGN_LIMITS.pitch[zone] &&
+    Math.abs(roll) <= ALIGN_LIMITS.roll[zone] &&
+    Math.abs(target.yaw - sample.yaw) <= ALIGN_LIMITS.yaw[1] + 1 &&
+    Math.abs(target.pitch - sample.pitch) <= ALIGN_LIMITS.pitch[1] + 2;
 
   const history = [...(prior?.history ?? []), { time: sample.time, yaw, pitch }];
   while (history.length > 1 && history[1].time <= sample.time - MOTION_WINDOW_MS) {
@@ -63,7 +79,7 @@ export function updateCaptureGuidance(
       targetYaw: target.yaw, targetPitch: target.pitch,
       aligned, heldMs, unsettledMs, history,
     } satisfies CaptureGuidanceState,
-    guidance: { aligned, yawError, pitchError, holdProgress: heldMs / HOLD_MS },
+    guidance: { aligned, yawError, pitchError, roll, holdProgress: heldMs / HOLD_MS },
     ready: aligned && steady && heldMs >= HOLD_MS,
   };
 }

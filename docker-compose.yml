@@ -8,17 +8,15 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Mount source for hot reload
+      # The project folder is mounted for hot reload.  Captured rooms
+      # (.astra3d-data/) and test cases (test-cases/) are plain folders inside
+      # it on your computer, so they survive restarts, rebuilds and
+      # `docker compose down -v`.
       - .:/app
       - /app/node_modules
       - /app/.next
-      # Persist project data
-      - astra3d-data:/app/.astra3d-data
     environment:
       - NODE_ENV=development
       - ASTRA3D_DATA_DIR=/app/.astra3d-data
+      - ASTRA3D_TEST_CASES_DIR=/app/test-cases
     restart: unless-stopped
-
-volumes:
-  astra3d-data:
-    driver: local

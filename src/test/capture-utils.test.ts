@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildCaptureLockConstraints,
   buildCaptureSlots,
+  lockCameraAppearance,
   CAPTURE_COLUMNS,
   chooseBracketExposure,
   estimateSharpness,
@@ -120,6 +121,34 @@ describe("room capture plan", () => {
       {},
     );
     expect(exposureOnly).toEqual({ exposureMode: "manual" });
+
+    const singleShot = buildCaptureLockConstraints(
+      { exposureMode: ["continuous", "single-shot"], whiteBalanceMode: ["continuous", "single-shot"] } as MediaTrackCapabilities,
+      {},
+    );
+    expect(singleShot).toEqual({ exposureMode: "single-shot", whiteBalanceMode: "single-shot" });
+  });
+
+  it("reports whether the camera actually locked", async () => {
+    const applyConstraints = vi.fn(async () => undefined);
+    const lockable = {
+      getCapabilities: () => ({ exposureMode: ["manual"], whiteBalanceMode: ["manual"] }),
+      getSettings: () => ({ exposureTime: 200, colorTemperature: 5000 }),
+      applyConstraints,
+    } as unknown as MediaStreamTrack;
+    await expect(lockCameraAppearance(lockable)).resolves.toBe("locked");
+    expect(applyConstraints).toHaveBeenCalledWith({
+      advanced: [{ exposureMode: "manual", exposureTime: 200, whiteBalanceMode: "manual", colorTemperature: 5000 }],
+    });
+
+    const bare = { getCapabilities: () => ({}), getSettings: () => ({}), applyConstraints } as unknown as MediaStreamTrack;
+    await expect(lockCameraAppearance(bare)).resolves.toBe("unsupported");
+    const rejecting = {
+      getCapabilities: () => ({ exposureMode: ["manual"] }),
+      getSettings: () => ({}),
+      applyConstraints: async () => { throw new DOMException("no", "OverconstrainedError"); },
+    } as unknown as MediaStreamTrack;
+    await expect(lockCameraAppearance(rejecting)).resolves.toBe("unsupported");
   });
 
   it("brackets exposure only on a manual lock with real headroom", () => {
