@@ -9,6 +9,7 @@ import { DemoTrigger } from "@/components/demo-request";
 
 const navigation = [
   { href: "/studio/", label: "Create 360" },
+  { href: "/scan", label: "3D Scan" },
   { href: "#platform", label: "Platform" },
   { href: "#experiences", label: "Experiences" },
   { href: "#workflow", label: "Workflow" },

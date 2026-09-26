@@ -1,0 +1,4 @@
+# 3D scan pipeline (scripts/splat_pipeline.py): camera poses from video.
+# Training the photoreal scene additionally needs nerfstudio on an NVIDIA
+# GPU; Dockerfile.splat-worker provides that.
+pycolmap>=4.0,<5

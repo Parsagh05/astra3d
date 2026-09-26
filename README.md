@@ -59,6 +59,7 @@ commands could delete; run `make import-volume` once to copy anything still in i
 - **Tests** (`/tests`): re-run any test case, or any capture saved in `.astra3d-data/`, through the current stitcher and compare quality reports
 - **360° Panorama stitching**: every photo's full 3D rotation and the lens are solved together by bundle adjustment (sensor-guided SIFT matching, RANSAC, robust Levenberg–Marquardt), levelled by gravity from the phone's motion sensors, brightness and colour equalised in linear light, then graph-cut seams and multiband blending. The report explains how the photos were taken (uneven turns, a dipped or tilted phone, changing exposure)
 - **Consistent photos**: exposure, white balance and focus are locked after the first photo where the browser allows it, and a photo is only taken with the dot inside the ring and the phone upright
+- **3D walk-through scans** (`/scan`): a separate section from the photo studio. Film a slow walk around a room (or upload a video) and the server turns it into a Gaussian splat you can walk through in the browser. See [3D Scans](#3d-scans)
 - **Optional ML matcher**: SuperPoint+LightGlue for low-texture rooms
 - **Interactive tours**: WebGL panorama viewer with hotspots, floor plan, navigation
 - **Demo flagship**: "Astra Atelier" - 3-room fashion boutique
@@ -70,6 +71,8 @@ commands could delete; run `make import-volume` once to copy anything still in i
 | `Dockerfile` | Multi-stage build (dev + production) |
 | `docker-compose.yml` | Development workflow |
 | `docker-compose.prod.yml` | Production deployment |
+| `docker-compose.gpu.yml` | Adds the GPU worker for photoreal 3D scans (with the production file) |
+| `Dockerfile.splat-worker` | nerfstudio-based GPU worker for 3D scans |
 | `.dockerignore` | Build context exclusions |
 
 ### Development Image
@@ -129,7 +132,64 @@ docker-compose exec astra3d npm run test:e2e
 
 # Full verification
 docker-compose exec astra3d npm run verify
+
+# 3D scan file formats and coordinate frames
+docker-compose exec astra3d python3 scripts/test_splat_format.py
 ```
+
+## 3D Scans
+
+The photo studio makes a 360° panorama from one standing point: you can look
+around but not move. The 3D scan section (`/scan`) instead reconstructs the room
+itself, the way apps like Polycam and Luma do, as a **Gaussian splat**: millions of
+small coloured, semi-transparent ellipsoids optimised until renders of them match
+the video frames. Walking around inside it shows real depth and parallax.
+
+**Filming.** The recorder films 1080p video with exposure and white balance locked,
+and uses the phone's motion sensors to show which parts of the room have been
+filmed (eye level, floor, ceiling) and to warn when you turn too fast. Walk,
+don't spin; do three slow loops (eye level, tilted down, tilted up); 1–3
+minutes in good light. A video from the camera app can be uploaded instead
+(MP4, MOV, WebM, MKV; up to 1.5 GB, set `ASTRA3D_SCAN_MAX_BYTES` to change).
+
+**Processing** (`scripts/splat_pipeline.py`), one folder per scan in
+`.astra3d-data/scans/<id>/`:
+
+1. **Frames**: the sharpest frame of every short time window (up to 180) is kept; motion-blurred frames are dropped.
+2. **Camera poses**: COLMAP (pycolmap) finds where every frame was taken and a sparse 3D point cloud.
+3. **Training**: on an NVIDIA GPU, nerfstudio's `splatfacto` trains the Gaussian splat (30,000 steps). Without a GPU, a quick *preview* places one splat per reconstructed point, so the capture can be checked right away.
+4. **Export**: the scene is levelled (gravity from how the phone was held), centred on the walked path, scaled to room size, and written as `scene.splat` for the browser viewer (Spark), with `scene.ply` (full quality, spherical harmonics) for other tools.
+
+The viewer starts where the video started. Drag to look around, WASD / arrow keys
+or pinch to move, or press *Walk the capture path* to replay the walk.
+
+**Running it.** By default the web server processes scans itself, one at a time
+(preview quality without a GPU). For photoreal scenes, add the GPU worker:
+
+```bash
+docker compose -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
+```
+
+The worker (`Dockerfile.splat-worker`, based on the nerfstudio image) watches the
+shared `.astra3d-data/scans/` folder, so it can also run on a separate GPU machine
+that mounts the same folder; set `ASTRA3D_SCAN_WORKER=external` on the web server.
+Earlier preview scans can be re-processed from the scan list once the worker runs;
+frames and camera poses are reused.
+
+| Resource | Preview (CPU) | Trained (GPU worker) |
+|----------|---------------|----------------------|
+| GPU | none | NVIDIA, 8 GB VRAM (24 GB for large rooms) |
+| RAM | 4 GB | 16–32 GB |
+| Time per scan | 2–10 min | 15–40 min |
+| Disk per scan | video + ~100 MB | video + 0.5–1.5 GB |
+
+Environment variables: `ASTRA3D_SCAN_WORKER` (`local` or `external`),
+`ASTRA3D_SPLAT_TRAINER` (`auto`, `nerfstudio`, `preview`),
+`ASTRA3D_SPLAT_MAX_FRAMES`, `ASTRA3D_SPLAT_ITERATIONS`,
+`ASTRA3D_SPLAT_MAPPING_TIMEOUT` (seconds), `ASTRA3D_PYTHON`.
+
+Outside Docker, install the pipeline's Python packages with `npm run setup:panorama`.
+`python scripts/make-scan-video.py` renders a synthetic walk-through video for testing.
 
 ## Shared Phone/Laptop Projects
 
@@ -150,8 +210,9 @@ src/
 ├── components/
 │   ├── tour/               Panorama viewer, hotspots
 │   ├── platform/           Marketing showcase
-│   └── room-capture/       Camera capture studio
-├── server/                 Panorama worker, project store, test-case store
+│   ├── room-capture/       Camera capture studio
+│   └── scan/               3D scan recorder, job list, splat viewer
+├── server/                 Panorama worker, project/test-case/scan stores, scan runner
 ├── data/                   Tour and platform content
 └── types/                  TypeScript definitions
 ```
@@ -160,7 +221,8 @@ src/
 
 - No authentication or user accounts
 - No cloud storage - all data is local
-- Studio requires fixed standing point (no walkable reconstruction)
+- The photo studio requires a fixed standing point; walkable rooms come from the 3D scan section
+- Photoreal 3D scans need an NVIDIA GPU worker
 - No WebXR/VR - browser-based only
 - Demo cart/checkout is illustrative only
 

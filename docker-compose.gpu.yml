@@ -1,0 +1,39 @@
+# Adds the GPU worker for photoreal 3D scans.  Use together with the
+# production file:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.gpu.yml up -d --build
+#
+# Requires an NVIDIA GPU (8 GB+ VRAM; 24 GB for large rooms) and the NVIDIA
+# Container Toolkit.  The web app then only stores and serves scans, and this
+# worker processes them from the shared .astra3d-data folder.
+services:
+  astra3d:
+    environment:
+      - ASTRA3D_SCAN_WORKER=external
+
+  splat-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.splat-worker
+    container_name: astra3d-splat-worker
+    # Same user as the web app, so either side can delete a scan's files.
+    user: "1000:1000"
+    volumes:
+      - ./.astra3d-data:/data
+    command: ["--watch", "/data/scans"]
+    environment:
+      - ASTRA3D_SPLAT_TRAINER=nerfstudio
+      # Frames kept from each video and training steps; lower both for
+      # faster, softer results.
+      - ASTRA3D_SPLAT_MAX_FRAMES=180
+      - ASTRA3D_SPLAT_ITERATIONS=30000
+    # PyTorch data loaders use shared memory.
+    shm_size: "8gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

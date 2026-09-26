@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  Box,
   Camera,
   Check,
   ChevronRight,
@@ -631,6 +632,12 @@ export function RoomStudio() {
                   <ChevronRight aria-hidden="true" />
                 </button>
               ) : null}
+
+              <Link className={styles.savedRoomButton} href="/scan">
+                <span><Box aria-hidden="true" /></span>
+                <span><strong>3D walk-through scan</strong><small>Film a video instead and walk through the room in 3D</small></span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
             </div>
 
             <div className={styles.captureBlueprint} aria-label="Capture process overview">

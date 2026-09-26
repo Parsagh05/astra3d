@@ -18,10 +18,10 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     useradd --uid 1000 --create-home --shell /bin/sh node && \
     node --version && npm --version
 
-COPY requirements-panorama.txt /tmp/requirements-panorama.txt
-RUN pip install --no-cache-dir -r /tmp/requirements-panorama.txt && \
-    rm /tmp/requirements-panorama.txt && \
-    python3 -c "import cv2, numpy; print('OpenCV', cv2.__version__)"
+COPY requirements-panorama.txt requirements-scan.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements-panorama.txt -r /tmp/requirements-scan.txt && \
+    rm /tmp/requirements-panorama.txt /tmp/requirements-scan.txt && \
+    python3 -c "import cv2, numpy, pycolmap; print('OpenCV', cv2.__version__, 'pycolmap', pycolmap.__version__)"
 
 WORKDIR /app
 

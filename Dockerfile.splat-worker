@@ -1,0 +1,28 @@
+# GPU worker for 3D scans: turns queued walk-through videos into trained
+# Gaussian splat scenes with nerfstudio's splatfacto.
+#
+# It shares the web app's data folder and watches <data>/scans for queued
+# jobs (see docker-compose.gpu.yml).  Needs an NVIDIA GPU with >= 8 GB VRAM
+# and the NVIDIA Container Toolkit on the host.
+#
+# The base image ships CUDA, PyTorch, gsplat, COLMAP and nerfstudio.
+ARG NERFSTUDIO_IMAGE=ghcr.io/nerfstudio-project/nerfstudio:1.1.3
+FROM ${NERFSTUDIO_IMAGE}
+
+USER root
+WORKDIR /opt/astra3d
+
+COPY requirements-scan.txt ./
+# Keep the base image's numpy/torch stack: pycolmap only needs numpy.
+RUN python3 -m pip install --no-cache-dir -r requirements-scan.txt && \
+    python3 -c "import pycolmap, cv2, numpy; print('pycolmap', pycolmap.__version__)" && \
+    command -v ns-train && command -v ns-export
+
+COPY scripts/splat_pipeline.py scripts/splat_format.py ./scripts/
+
+ENV ASTRA3D_SPLAT_TRAINER=nerfstudio \
+    PYTHONUNBUFFERED=1 \
+    HOME=/tmp
+
+ENTRYPOINT ["python3", "/opt/astra3d/scripts/splat_pipeline.py"]
+CMD ["--watch", "/data/scans"]
