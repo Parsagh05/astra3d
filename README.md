@@ -53,7 +53,7 @@ commands could delete; run `make import-volume` once to copy anything still in i
 
 ## Features
 
-- **Room Capture Studio** (`/studio/`): Phone-first workflow with 12 (quick) or 36 (full) photos per room
+- **Room Capture Studio** (`/studio/`): Phone-first workflow; a full 360 (36 photos: eye level, ceiling and floor) by default, or a 12-photo eye-level quick scan. Each photo uses the full camera sensor when the browser supports ImageCapture, and panoramas are blended natively at 4096 × 2048
 - **Photo-sphere guided capture**: a fixed white ring marks where the camera points and an orange dot marks the next target in the room. Turn right until the dot sits in the ring and hold still; the ring fills and the photo is taken. Captured photos are painted onto a gridded sphere around the live view so coverage is visible as it grows
 - **Test maker** (`/test-maker`): capture a room once with the same guidance and save it straight into `test-cases/`
 - **Tests** (`/tests`): re-run any test case, or any capture saved in `.astra3d-data/`, through the current stitcher and compare quality reports

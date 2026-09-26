@@ -58,6 +58,7 @@ test("captures a guided 12-photo test case and saves it for the Tests page", asy
   expect(intro.violations.filter((violation) => violation.impact === "critical" || violation.impact === "serious")).toEqual([]);
 
   await page.getByRole("textbox", { name: "Test case name" }).fill("e2e room");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start capture/ }).click();
   await page.getByRole("button", { name: "Begin eye-level capture" }).click();
   await hold(page, 0, 90, 3_300);
@@ -79,6 +80,7 @@ test("captures a guided 12-photo test case and saves it for the Tests page", asy
 
 test("never captures a target reached by turning the wrong way", async ({ page }) => {
   await page.goto("/test-maker");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start capture/ }).click();
   await page.getByRole("button", { name: "Begin eye-level capture" }).click();
   await hold(page, 0, 90, 3_300);

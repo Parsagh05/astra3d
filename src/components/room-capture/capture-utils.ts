@@ -203,25 +203,78 @@ function encodeJpeg(canvas: HTMLCanvasElement, quality: number) {
   });
 }
 
-/** One preview still per target: bounded pixels, asynchronous encoding, and a
- * tiny thumbnail so the coverage map never decodes all full-size photographs. */
-export async function capturePreviewStill(video: HTMLVideoElement, zoom = 1): Promise<PreviewStillCapture> {
-  if (!video.videoWidth || !video.videoHeight) {
-    throw new Error("The camera is still starting. Try again in a moment.");
-  }
-  const height = Math.round(Math.min(1440, croppedSourceHeight(video.videoWidth, video.videoHeight, zoom)));
+async function encodeStill(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  zoom: number,
+  maxHeight: number,
+): Promise<PreviewStillCapture> {
+  const height = Math.round(Math.min(maxHeight, croppedSourceHeight(sourceWidth, sourceHeight, zoom)));
   const canvas = createCanvas(Math.round(height * STILL_ASPECT), height);
   const thumbnail = createCanvas(240, 320);
   try {
-    drawCover(getCanvasContext(canvas), video, video.videoWidth, video.videoHeight, canvas.width, canvas.height, zoom);
+    drawCover(getCanvasContext(canvas), source, sourceWidth, sourceHeight, canvas.width, canvas.height, zoom);
     getCanvasContext(thumbnail).drawImage(canvas, 0, 0, thumbnail.width, thumbnail.height);
-    const image = await encodeJpeg(canvas, 0.86);
+    const image = await encodeJpeg(canvas, 0.9);
     const preview = await encodeJpeg(thumbnail, 0.7);
     return { image, thumbnailUrl: URL.createObjectURL(preview) };
   } finally {
     // Release canvas backing stores immediately; only compressed Blobs remain.
     canvas.width = canvas.height = thumbnail.width = thumbnail.height = 1;
   }
+}
+
+/** One preview still per target: bounded pixels, asynchronous encoding, and a
+ * small thumbnail so the coverage map never decodes all full-size photographs. */
+export async function capturePreviewStill(video: HTMLVideoElement, zoom = 1): Promise<PreviewStillCapture> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new Error("The camera is still starting. Try again in a moment.");
+  }
+  return encodeStill(video, video.videoWidth, video.videoHeight, zoom, 1440);
+}
+
+/** A photo slower than this would outlast the user's steady hold. */
+const PHOTO_TIMEOUT_MS = 2500;
+
+/**
+ * The sharpest still the phone offers for one target.
+ *
+ * A real camera photo (ImageCapture.takePhoto) uses the full sensor, often
+ * 3-4x the pixels of the live preview, and the panorama's detail is bounded
+ * by these pixels.  Browsers without ImageCapture, photos no larger than the
+ * preview, photos delivered in a different orientation than the preview, and
+ * slow shutters all fall back to the preview grab, so capture never breaks.
+ */
+export async function captureFullStill(
+  video: HTMLVideoElement,
+  track: MediaStreamTrack | undefined,
+  zoom = 1,
+): Promise<PreviewStillCapture> {
+  if (!video.videoWidth || !video.videoHeight) {
+    throw new Error("The camera is still starting. Try again in a moment.");
+  }
+  const ImageCaptureCtor = (window as Window & { ImageCapture?: ImageCaptureConstructor }).ImageCapture;
+  if (track && ImageCaptureCtor && typeof createImageBitmap === "function") {
+    try {
+      const photo = await Promise.race([
+        new ImageCaptureCtor(track).takePhoto(),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error("slow shutter")), PHOTO_TIMEOUT_MS)),
+      ]);
+      const bitmap = await createImageBitmap(photo);
+      try {
+        const samePortrait = (bitmap.height >= bitmap.width) === (video.videoHeight >= video.videoWidth);
+        if (samePortrait && bitmap.width * bitmap.height > video.videoWidth * video.videoHeight * 1.2) {
+          return await encodeStill(bitmap, bitmap.width, bitmap.height, zoom, MAX_STILL_HEIGHT);
+        }
+      } finally {
+        bitmap.close();
+      }
+    } catch {
+      // Unsupported or failed photo pipelines fall back to the preview grab.
+    }
+  }
+  return capturePreviewStill(video, zoom);
 }
 
 /** Portrait 3:4 crop shared by every capture path. */

@@ -58,28 +58,6 @@ class StageTimer:
 
 CAPTURE_COLUMNS = 12
 # A frame reaches pitch +/- vFOV/2, so the tilt decides how much ceiling and
-# floor a sweep photographs.  At the former 35 each pole kept a 21 degree cap
-# that no photograph covered, which fill_polar_holes smoothed from the nearest
-# ring.  50 closes that cap on a typical 4:3 phone and an ultrawide and cuts it
-# to 6 degrees on the narrowest 3:4 crop, without giving up the cross-band
-# overlap that register_band_against_middle needs.  Must match
-# BAND_TILT_DEGREES in src/lib/capture-plan.ts.
-BAND_TILT = 50.0
-BANDS = (("middle", 0.0), ("upper", BAND_TILT), ("lower", -BAND_TILT))
-MIN_PAIR_INLIERS = 9
-# LightGlue matches are mutual and score-filtered, so fewer suffice.
-MIN_LEARNED_INLIERS = 6
-MAX_BAND_YAW_OFFSET = 25.0
-MAX_FRAME_ROLL = 15.0
-# Full-resolution photo stills are projected at up to this width; the
-# lightweight registration copies stay much smaller.
-MAX_SOURCE_WIDTH = 2048
-# Native blend canvas cap; wider requests are Lanczos-upscaled afterwards.
-MAX_BLEND_WIDTH = 3072
-
-
-CAPTURE_COLUMNS = 12
-# A frame reaches pitch +/- vFOV/2, so the tilt decides how much ceiling and
 # floor a sweep photographs.  50 closes the pole caps on a typical 4:3 phone
 # and an ultrawide and cuts them to 6 degrees on the narrowest 3:4 crop.
 # Must match BAND_TILT_DEGREES in src/lib/capture-plan.ts.
@@ -89,8 +67,10 @@ MIN_PAIR_INLIERS = 12
 # Full-resolution photo stills are projected at up to this width; the
 # lightweight registration copies stay much smaller.
 MAX_SOURCE_WIDTH = 2048
-# Native blend canvas cap; wider requests are Lanczos-upscaled afterwards.
-MAX_BLEND_WIDTH = 3072
+# Native blend canvas cap.  4096 (11 px/°) is blended natively instead of
+# upscaled from 3072, which only added blur, and it is the largest texture
+# most phones' WebGL can show.  6144 doubled the time and needed 3.4 GB.
+MAX_BLEND_WIDTH = 4096
 # Capture advice thresholds, in degrees.
 TURN_TOLERANCE = 7.0
 TILT_TOLERANCE = 6.0

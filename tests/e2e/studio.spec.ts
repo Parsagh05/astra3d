@@ -113,7 +113,8 @@ test("offers a secure guided phone capture route without horizontal overflow", a
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await expect(page.getByText("Secure live camera required")).toBeVisible();
   await expect(page.getByRole("button", { name: "Secure connection required" })).toBeDisabled();
-  await expect(page.getByText(`0 / ${CAPTURE_COLUMNS}`, { exact: true })).toBeVisible();
+  // A true 360 (all three sweeps) is the default.
+  await expect(page.getByText(`0 / ${TOTAL_CAPTURE_SLOTS}`, { exact: true })).toBeVisible();
 
   const dialGeometry = await page
     .locator('[aria-label="Current rotation coverage"] > div')
@@ -278,6 +279,7 @@ test("automatically captures with hand tremor but waits during a moving sweep", 
     });
   });
   await page.goto("/studio/");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await expect(page.getByRole("button", { name: "Begin eye-level capture" })).toBeVisible();
   await beginGuidedBand(page, "Begin eye-level capture", 90);
@@ -331,6 +333,7 @@ test("switches to manual capture, zooms the saved crop, and retakes any captured
   });
 
   await page.goto("/studio/");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start room scan/i }).click();
   await page.getByRole("button", { name: /^Manual/ }).click();
   await expect(page.getByRole("button", { name: /^Manual/ })).toHaveAttribute("data-active", "true");
@@ -402,6 +405,7 @@ test("uses real 0.6x hardware zoom and exposes an available ultrawide lens", asy
   });
 
   await page.goto("/studio/");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start room scan/i }).click();
 
   const lensPicker = page.getByLabel("Camera lens");
@@ -489,6 +493,7 @@ test("finishes a quick room after exactly 12 photos without extra exposures", as
 
   await page.goto("/studio/");
   await page.getByRole("textbox", { name: "Room name" }).fill("Test living room");
+  await page.getByRole("button", { name: /^Quick/ }).click();
   await page.getByRole("button", { name: /Start room scan/i }).click();
 
   await beginGuidedBand(page, "Begin eye-level capture", 90);

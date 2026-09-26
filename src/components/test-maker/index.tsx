@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 
 import { BrandMark } from "@/components/brand-mark";
 import {
-  capturePreviewStill,
+  captureFullStill,
   lockCameraAppearance,
   type AppearanceLock,
   type PreviewStillCapture,
@@ -78,7 +78,7 @@ function caseSlug(name: string) {
  * same stored motion data, so a case replays like a real studio upload.
  */
 export function TestMaker() {
-  const [captureExtent, setCaptureExtent] = useState<CaptureExtent>("quick");
+  const [captureExtent, setCaptureExtent] = useState<CaptureExtent>("full");
   const captureSlots = useMemo(() => buildCaptureSlots(captureExtent), [captureExtent]);
   const captureBands = useMemo(() => getCaptureBands(captureExtent), [captureExtent]);
   const totalCaptureSlots = captureSlots.length;
@@ -162,8 +162,8 @@ export function TestMaker() {
         audio: false,
         video: {
           facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
+          width: { ideal: 1920 },
+          height: { ideal: 1440 },
           frameRate: { ideal: 24, max: 30 },
         },
       });
@@ -220,7 +220,7 @@ export function TestMaker() {
     try {
       const pose = capturePose();
       const capturedAt = Date.now();
-      const capture = await capturePreviewStill(videoRef.current, 1);
+      const capture = await captureFullStill(videoRef.current, streamRef.current?.getVideoTracks?.()[0], 1);
       if (statusRef.current !== "scanning" || session !== captureSessionRef.current) {
         URL.revokeObjectURL(capture.thumbnailUrl);
         return;
@@ -389,13 +389,13 @@ export function TestMaker() {
             </label>
 
             <div className={styles.modeSelect} role="group" aria-label="Capture coverage">
+              <button type="button" aria-pressed={captureExtent === "full"} data-active={captureExtent === "full"} onClick={() => setCaptureExtent("full")}>
+                <strong>Full 360 · 36 photos</strong>
+                <small>Eye level, ceiling and floor</small>
+              </button>
               <button type="button" aria-pressed={captureExtent === "quick"} data-active={captureExtent === "quick"} onClick={() => setCaptureExtent("quick")}>
                 <strong>Quick · 12 photos</strong>
                 <small>One eye-level sweep</small>
-              </button>
-              <button type="button" aria-pressed={captureExtent === "full"} data-active={captureExtent === "full"} onClick={() => setCaptureExtent("full")}>
-                <strong>Full · 36 photos</strong>
-                <small>Eye level, ceiling and floor</small>
               </button>
             </div>
 

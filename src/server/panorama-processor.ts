@@ -15,10 +15,17 @@ import type { CaptureBandId, CaptureOrientation, PanoramaQualityReport } from "@
 
 export const PANORAMA_WIDTH = 3072;
 export const PANORAMA_HEIGHT = 1536;
-/** Output size used when the phone delivered full-resolution photo stills. */
+/**
+ * Output size for sharp stills, blended natively.  4096 is also the largest
+ * panorama texture most phones' WebGL can display.
+ */
 export const HIGH_RES_PANORAMA_WIDTH = 4096;
-/** Portrait still width that indicates real photo captures rather than preview grabs. */
-const HIGH_RES_FRAME_WIDTH = 1440;
+/**
+ * A still spans ~50°, so a 700 px wide one already carries the 11 px per
+ * degree a 4096 panorama can show; smaller stills get the 3072 output
+ * instead of being upscaled into a blur.
+ */
+const HIGH_RES_FRAME_WIDTH = 700;
 export const MAX_FRAME_BYTES = 5 * 1024 * 1024;
 /**
  * A complete capture is every slot, and each may carry an exposure bracket,
@@ -165,14 +172,12 @@ async function removePrivateJobDirectory(jobDirectory: string) {
   await rm(resolvedJob, { recursive: true, force: true });
 }
 
-/** Full-resolution photo captures earn the larger equirect output. */
+/** Sharper photos earn a larger equirect output. */
 async function chooseOutputWidth(frames: readonly ServerPanoramaFrame[]) {
   try {
     const probe = frames.find((frame) => frame.sequence === 0) ?? frames[0];
     const metadata = await sharp(probe.image).metadata();
-    return (metadata.width ?? 0) >= HIGH_RES_FRAME_WIDTH
-      ? HIGH_RES_PANORAMA_WIDTH
-      : PANORAMA_WIDTH;
+    return (metadata.width ?? 0) >= HIGH_RES_FRAME_WIDTH ? HIGH_RES_PANORAMA_WIDTH : PANORAMA_WIDTH;
   } catch {
     return PANORAMA_WIDTH;
   }

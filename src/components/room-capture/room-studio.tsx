@@ -24,7 +24,7 @@ import type { SharedRoomProject } from "@/types/capture";
 import {
   buildCaptureSlots,
   CAPTURE_COLUMNS,
-  capturePreviewStill,
+  captureFullStill,
   getCaptureProgress,
   lockCameraAppearance,
   type AppearanceLock,
@@ -75,7 +75,7 @@ function getCameraLabel(device: MediaDeviceInfo, index: number) {
 }
 
 export function RoomStudio() {
-  const [captureExtent, setCaptureExtent] = useState<CaptureExtent>("quick");
+  const [captureExtent, setCaptureExtent] = useState<CaptureExtent>("full");
   const captureSlots = useMemo(() => buildCaptureSlots(captureExtent), [captureExtent]);
   const captureBands = useMemo(() => getCaptureBands(captureExtent), [captureExtent]);
   const totalCaptureSlots = captureSlots.length;
@@ -239,8 +239,8 @@ export function RoomStudio() {
           ...(requestedDeviceId
             ? { deviceId: { exact: requestedDeviceId } }
             : { facingMode: { ideal: "environment" } }),
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
+          width: { ideal: 1920 },
+          height: { ideal: 1440 },
           frameRate: { ideal: 24, max: 30 },
         },
       });
@@ -400,7 +400,7 @@ export function RoomStudio() {
       const softwareZoom = zoomRange.hardware ? 1 : captureZoom;
       const pose = capturePose();
       const capturedAt = Date.now();
-      const capture = await capturePreviewStill(video, softwareZoom);
+      const capture = await captureFullStill(video, streamRef.current?.getVideoTracks?.()[0], softwareZoom);
       if (statusRef.current !== "scanning" || session !== captureSessionRef.current) {
         URL.revokeObjectURL(capture.thumbnailUrl);
         return;
@@ -598,7 +598,7 @@ export function RoomStudio() {
               <p className={styles.kicker}><ScanLine aria-hidden="true" /> Single-room capture</p>
               <h1 id="studio-title">Scan once. Look around forever.</h1>
               <p>
-                Stand in one fixed spot and turn once for a quick 12-photo room scan. Choose Full scan when you also need photographed ceiling and floor views.
+                Stand in one fixed spot and take three sweeps: eye level, tilted up and tilted down, for a true 360 with a photographed ceiling and floor. Quick scan does eye level only.
               </p>
 
               <label className={styles.roomNameField}>
@@ -612,14 +612,14 @@ export function RoomStudio() {
               </label>
 
               <div className={styles.captureMode} role="group" aria-label="Scan coverage">
-                <button type="button" aria-pressed={captureExtent === "quick"} data-active={captureExtent === "quick"} onClick={() => setCaptureExtent("quick")}>
-                  <span><strong>Quick · 12 photos</strong><small>One eye-level sweep</small></span>
-                </button>
                 <button type="button" aria-pressed={captureExtent === "full"} data-active={captureExtent === "full"} onClick={() => setCaptureExtent("full")}>
-                  <span><strong>Full · 36 photos</strong><small>Eye level, ceiling and floor</small></span>
+                  <span><strong>Full 360 · 36 photos</strong><small>Eye level, ceiling and floor</small></span>
+                </button>
+                <button type="button" aria-pressed={captureExtent === "quick"} data-active={captureExtent === "quick"} onClick={() => setCaptureExtent("quick")}>
+                  <span><strong>Quick · 12 photos</strong><small>Eye level only</small></span>
                 </button>
               </div>
-              <p className={styles.coverageNote}>{captureExtent === "quick" ? "Quick scan shows the room around you. Unphotographed ceiling and floor areas use a soft fill." : "Full scan adds upward and downward sweeps for more ceiling and floor detail."}</p>
+              <p className={styles.coverageNote}>{captureExtent === "quick" ? "Quick scan shows the room around you. Unphotographed ceiling and floor areas use a soft fill." : "Full 360 photographs eye level, the ceiling and the floor, so the whole sphere is real."}</p>
               <button className={styles.primaryButton} type="button" onClick={beginCapture}>
                 <Camera aria-hidden="true" /> Start room scan <ChevronRight aria-hidden="true" />
               </button>
