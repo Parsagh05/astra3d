@@ -60,7 +60,7 @@ describe("scans API", () => {
     const response = await scans.POST(upload(video, { name: "  Living\u0000 room  " }));
     expect(response.status).toBe(201);
     const { scan } = await response.json();
-    expect(scan).toMatchObject({ name: "Living room", status: "queued", stage: "queued", progress: 0, video: { bytes: video.length, mimeType: "video/mp4" } });
+    expect(scan).toMatchObject({ name: "Living room", source: "video", status: "queued", stage: "queued", progress: 0, video: { bytes: video.length, mimeType: "video/mp4" } });
     // The worker's contract: job.json plus the video, and nothing half-written left behind.
     const stored = await readJob(scan.id);
     expect(stored).toMatchObject({ version: 1, id: scan.id, video: { file: "video.mp4" } });
@@ -84,6 +84,32 @@ describe("scans API", () => {
     expect((await tooLarge.json()).error).toMatch(/larger than/);
     // Failed uploads leave no job and no staging folder.
     expect(await readdir(path.join(root, "scans"))).toEqual([]);
+  });
+
+  it("accepts photos as one ZIP and records how many arrived", async () => {
+    const { default: JSZip } = await import("jszip");
+    const pack = async (count: number) => {
+      const zip = new JSZip();
+      for (let index = 0; index < count; index += 1) zip.file(`photo_${String(index + 1).padStart(4, "0")}.jpg`, Buffer.alloc(8192, index));
+      return zip.generateAsync({ type: "nodebuffer", compression: "STORE" });
+    };
+    const { scans } = await loadRoutes();
+    const archive = await pack(24);
+    const response = await scans.POST(upload(archive, { type: "application/zip", name: "Kitchen" }));
+    expect(response.status).toBe(201);
+    const { scan } = await response.json();
+    expect(scan).toMatchObject({ name: "Kitchen", source: "photos", status: "queued", photos: { count: 24, bytes: archive.length } });
+    expect(scan.video).toBeUndefined();
+    expect(scan.photos.file).toBeUndefined();
+    expect(await readJob(scan.id)).toMatchObject({ source: "photos", photos: { file: "photos.zip", count: 24 } });
+    expect((await stat(path.join(root, "scans", scan.id, "photos.zip"))).size).toBe(archive.length);
+
+    // Too few photos, or something that is not a ZIP, never becomes a job.
+    const nineteen = await scans.POST(upload(await pack(19), { type: "application/zip" }));
+    expect(nineteen.status).toBe(400);
+    expect((await nineteen.json()).error).toMatch(/Only 19 photos/);
+    expect((await scans.POST(upload(Buffer.alloc(100 * 1024, 3), { type: "application/zip" }))).status).toBe(415);
+    expect((await readdir(path.join(root, "scans"))).filter((entry) => entry !== scan.id)).toEqual([]);
   });
 
   it("marks a running job whose worker went silent as failed, and retries it", async () => {

@@ -200,3 +200,63 @@ test("films the room with coverage guidance and uploads the recording", async ({
   expect(uploaded!.type).toMatch(/^video\/(webm|mp4)$/);
   expect(uploaded!.bytes).toBeGreaterThan(1000);
 });
+
+test("takes photos for 3D with step guidance and uploads them as one ZIP", async ({ page }) => {
+  test.setTimeout(60_000);
+  // A canvas stream with a moving pattern stands in for the rear camera.
+  await page.addInitScript(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d")!;
+    window.setInterval(() => {
+      const shift = (Date.now() / 10) % 80;
+      for (let x = -80; x < 640; x += 40) {
+        context.fillStyle = (Math.round((x + shift) / 40) % 2) ? "#2a4d6e" : "#e0c27a";
+        context.fillRect(x + shift, 0, 40, 360);
+      }
+    }, 40);
+    const stream = canvas.captureStream(24);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: async () => stream, enumerateDevices: async () => [] },
+    });
+  });
+  let uploaded: { type?: string; bytes: number; head: string } | null = null;
+  const queued = { ...baseScan, source: "photos", video: undefined, photos: { count: 21, bytes: 1_000_000 }, status: "queued", stage: "queued", progress: 0, message: "Waiting for a worker…" };
+  await page.route(/\/api\/scans(\?.*)?$/, (route) => {
+    if (route.request().method() === "POST") {
+      const body = route.request().postDataBuffer() ?? Buffer.alloc(0);
+      uploaded = { type: route.request().headers()["content-type"], bytes: body.length, head: body.subarray(0, 2).toString("latin1") };
+      return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ scan: queued }) });
+    }
+    return route.fulfill({ contentType: "application/json", body: JSON.stringify({ scans: uploaded ? [queued] : [], worker: "external", maxBytes: 1_610_612_736 }) });
+  });
+
+  await page.goto("/scan");
+  await page.getByRole("button", { name: "Take photos for 3D" }).click();
+  await expect(page.getByText(/small step sideways/)).toBeVisible();
+  const shutter = page.getByRole("button", { name: "Take photo" });
+  await expect(shutter).toBeEnabled({ timeout: 10_000 });
+  await expect(page.getByRole("button", { name: /Done \(needs 20 more photos\)/ })).toBeDisabled();
+
+  for (let index = 0; index < 21; index += 1) {
+    await page.evaluate((alpha) => {
+      const event = new Event("deviceorientation");
+      Object.defineProperties(event, { alpha: { value: alpha }, beta: { value: 90 }, gamma: { value: 0 } });
+      window.dispatchEvent(event);
+    }, (360 - index * 15) % 360);
+    await shutter.click();
+    await expect(page.getByText(String(index + 1), { exact: true })).toBeVisible();
+  }
+  await expect(page.getByRole("img", { name: /% of the room photographed/ })).toBeVisible();
+  await page.getByRole("button", { name: "Undo last photo" }).click();
+  await expect(page.getByText("20", { exact: true })).toBeVisible();
+  await shutter.click();
+  await page.getByRole("button", { name: "Done, build the 3D room" }).click();
+  await expect(page.getByRole("dialog", { name: "Take photos for 3D" })).toBeHidden();
+  await expect(page.getByText("Waiting for a worker · 21 photos")).toBeVisible();
+  expect(uploaded).not.toBeNull();
+  expect(uploaded!.type).toBe("application/zip");
+  expect(uploaded!.head).toBe("PK");
+});

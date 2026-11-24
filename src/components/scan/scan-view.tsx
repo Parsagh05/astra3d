@@ -111,7 +111,7 @@ export function ScanView({ scanId }: { scanId: string }) {
               {scan.status === "done" && scan.result ? (
                 <dl className={styles.stats}>
                   <div><dt>Splats</dt><dd>{formatCount(scan.result.gaussians)}</dd></div>
-                  <div><dt>Frames placed</dt><dd>{scan.result.placed}/{scan.result.frames}</dd></div>
+                  <div><dt>{scan.source === "photos" ? "Photos placed" : "Frames placed"}</dt><dd>{scan.result.placed}/{scan.result.frames}</dd></div>
                   <div><dt>Scene</dt><dd>{formatBytes(scan.result.sceneBytes)}</dd></div>
                 </dl>
               ) : null}

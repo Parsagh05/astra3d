@@ -48,11 +48,12 @@ export function scanFileUrl(id: string, file: string, version?: string) {
   return version ? `${url}?v=${encodeURIComponent(version)}` : url;
 }
 
-/** Normalises a picked or recorded video's type to one the server accepts. */
+/** Normalises a picked or recorded video's (or a photo ZIP's) type to one the server accepts. */
 export function uploadType(file: Blob & { name?: string }) {
   const type = file.type.split(";")[0].toLowerCase();
-  if (["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"].includes(type)) return type;
+  if (["video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "application/zip"].includes(type)) return type;
   const name = file.name?.toLowerCase() ?? "";
+  if (type === "application/x-zip-compressed" || name.endsWith(".zip")) return "application/zip";
   if (name.endsWith(".mov")) return "video/quicktime";
   if (name.endsWith(".webm")) return "video/webm";
   if (name.endsWith(".mkv")) return "video/x-matroska";
@@ -90,7 +91,7 @@ export function uploadScan(file: Blob & { name?: string }, name: string, onProgr
 
 export const STAGE_LABELS: Record<ScanJob["stage"], string> = {
   queued: "Waiting",
-  frames: "Picking sharp frames",
+  frames: "Preparing frames",
   poses: "Solving camera positions",
   training: "Building the 3D scene",
   export: "Finishing",
@@ -107,4 +108,71 @@ export function formatCount(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 10_000) return `${Math.round(value / 1000)}k`;
   return value.toLocaleString("en-US");
+}
+
+/** Long side of photos sent for a 3D scan; the pipeline works at 1600 px. */
+export const PHOTO_MAX_DIMENSION = 1920;
+
+function decodeWithImageElement(file: Blob) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("This photo could not be opened."));
+    };
+    image.src = url;
+  });
+}
+
+/**
+ * Turns one photo (from the camera or the gallery) into a JPEG no larger
+ * than PHOTO_MAX_DIMENSION, upright (EXIF rotation applied by the browser).
+ * Smaller photos keep a 100-photo upload to tens of MB on a phone.
+ */
+export async function preparePhoto(file: Blob): Promise<Blob> {
+  let source: ImageBitmap | HTMLImageElement;
+  if (typeof createImageBitmap === "function") {
+    try {
+      source = await createImageBitmap(file);
+    } catch {
+      source = await decodeWithImageElement(file);
+    }
+  } else {
+    source = await decodeWithImageElement(file);
+  }
+  const width = "naturalWidth" in source ? source.naturalWidth : source.width;
+  const height = "naturalHeight" in source ? source.naturalHeight : source.height;
+  if (!width || !height) throw new Error("This photo is empty.");
+  const scale = Math.min(1, PHOTO_MAX_DIMENSION / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+  try {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("This browser cannot prepare photos.");
+    context.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("This photo could not be saved.")), "image/jpeg", 0.92);
+    });
+  } finally {
+    if ("close" in source) source.close();
+    canvas.width = canvas.height = 1;
+  }
+}
+
+/**
+ * Packs photos into one ZIP (stored, not compressed: JPEGs do not shrink)
+ * so the phone uploads a single file with one progress bar.  Names keep
+ * capture order, which the pipeline relies on for large sets.
+ */
+export async function packPhotos(photos: readonly Blob[]): Promise<Blob> {
+  const { default: JSZip } = await import("jszip");
+  const zip = new JSZip();
+  photos.forEach((photo, index) => zip.file(`photo_${String(index + 1).padStart(4, "0")}.jpg`, photo));
+  return zip.generateAsync({ type: "blob", compression: "STORE", mimeType: "application/zip" });
 }

@@ -41,7 +41,9 @@ Open `http://localhost:3000`. The room creator is at `http://localhost:3000/stud
 
 ## Project Data
 
-Completed scans are saved to `.astra3d-data/projects/<project-id>/` containing:
+House tours are saved as `.astra3d-data/tours/<tour-id>.json` (rooms and arrows only; the
+panoramas stay in the projects folder). Completed studio scans are saved to
+`.astra3d-data/projects/<project-id>/` containing:
 - `project.json` - Project manifest (with the phone's motion data per photo)
 - `panorama.jpg` - The stitched panorama
 - `frames/` - Source photographs
@@ -59,7 +61,8 @@ commands could delete; run `make import-volume` once to copy anything still in i
 - **Tests** (`/tests`): re-run any test case, or any capture saved in `.astra3d-data/`, through the current stitcher and compare quality reports
 - **360° Panorama stitching**: every photo's full 3D rotation and the lens are solved together by bundle adjustment (sensor-guided SIFT matching, RANSAC, robust Levenberg–Marquardt), levelled by gravity from the phone's motion sensors, brightness and colour equalised in linear light, then graph-cut seams and multiband blending. The report explains how the photos were taken (uneven turns, a dipped or tilted phone, changing exposure)
 - **Consistent photos**: exposure, white balance and focus are locked after the first photo where the browser allows it, and a photo is only taken with the dot inside the ring and the phone upright
-- **3D walk-through scans** (`/scan`): a separate section from the photo studio. Film a slow walk around a room (or upload a video) and the server turns it into a Gaussian splat you can walk through in the browser. See [3D Scans](#3d-scans)
+- **3D walk-through scans** (`/scan`): a separate section from the photo studio. Tap **Take photos for 3D** and take a photo per small step around the room (or upload photos, film a slow walk, or upload a video) and the server turns it into a Gaussian splat you can walk through in the browser. See [3D Scans](#3d-scans)
+- **House tours** (`/tours`): Street View / GeoGuessr-style walk-throughs. Make a 360° of each room in the studio, put the rooms in a tour, and click where each doorway is to place an arrow; visitors drag to look around and click the arrows (or press W / ↑) to walk from room to room. No GPU needed. See [House Tours](#house-tours)
 - **Optional ML matcher**: SuperPoint+LightGlue for low-texture rooms
 - **Interactive tours**: WebGL panorama viewer with hotspots, floor plan, navigation
 - **Demo flagship**: "Astra Atelier" - 3-room fashion boutique
@@ -135,6 +138,9 @@ docker-compose exec astra3d npm run verify
 
 # 3D scan file formats and coordinate frames
 docker-compose exec astra3d python3 scripts/test_splat_format.py
+
+# Photo scans: unpacking and checking photos.zip
+docker-compose exec astra3d python3 scripts/test_photo_scan.py
 ```
 
 ## 3D Scans
@@ -144,6 +150,17 @@ around but not move. The 3D scan section (`/scan`) instead reconstructs the room
 itself, the way apps like Polycam and Luma do, as a **Gaussian splat**: millions of
 small coloured, semi-transparent ellipsoids optimised until renders of them match
 the video frames. Walking around inside it shows real depth and parallax.
+
+**Taking photos.** *Take photos for 3D* opens the camera: take a photo, take one
+small step sideways, take the next. Each photo should overlap the last by about two
+thirds, so turn no more than ~30° between photos (the phone warns about bigger
+turns). Go round once at eye level, once tilted down and once tilted up; the
+coverage map fills in as directions are photographed from two spots. Blurred photos
+are refused so they can be retaken, and exposure is locked after the first photo.
+20 photos minimum, 40–100 for a normal room, up to 180. *Upload photos* accepts
+photos from the gallery instead (taken the same way); they are shrunk to 1920 px on
+the phone and sent with the captured ones as a single uncompressed ZIP. Standing in
+one spot and turning only makes a panorama: use the photo studio for that.
 
 **Filming.** The recorder films 1080p video with exposure and white balance locked,
 and uses the phone's motion sensors to show which parts of the room have been
@@ -155,8 +172,8 @@ minutes in good light. A video from the camera app can be uploaded instead
 **Processing** (`scripts/splat_pipeline.py`), one folder per scan in
 `.astra3d-data/scans/<id>/`:
 
-1. **Frames**: the sharpest frame of every short time window (up to 180) is kept; motion-blurred frames are dropped.
-2. **Camera poses**: COLMAP (pycolmap) finds where every frame was taken and a sparse 3D point cloud.
+1. **Frames**: for video, the sharpest frame of every short time window (up to 180) is kept and motion-blurred frames are dropped; for photos, `photos.zip` is unpacked in capture order and photos far blurrier than the rest are dropped.
+2. **Camera poses**: COLMAP (pycolmap) finds where every frame was taken and a sparse 3D point cloud. Video frames are matched with their neighbours; up to 150 photos are matched every pair with every pair (order does not matter), larger sets with their neighbours.
 3. **Training**: on an NVIDIA GPU, nerfstudio's `splatfacto` trains the Gaussian splat (30,000 steps). Without a GPU, a quick *preview* places one splat per reconstructed point, so the capture can be checked right away.
 4. **Export**: the scene is levelled (gravity from how the phone was held), centred on the walked path, scaled to room size, and written as `scene.splat` for the browser viewer (Spark), with `scene.ply` (full quality, spherical harmonics) for other tools.
 
@@ -191,6 +208,25 @@ Environment variables: `ASTRA3D_SCAN_WORKER` (`local` or `external`),
 Outside Docker, install the pipeline's Python packages with `npm run setup:panorama`.
 `python scripts/make-scan-video.py` renders a synthetic walk-through video for testing.
 
+## House Tours
+
+The photo studio makes one 360° panorama per standing point. A house tour links
+several of them with arrows, the way Street View and GeoGuessr work:
+
+1. In the studio (`/studio/`), make a 360° in the middle of every room. Big rooms and
+   hallways can have two or three spots.
+2. On `/tours`, name the tour and tick the rooms in walking order. *Create tour and
+   place arrows* opens the editor.
+3. In each room, choose *Arrow to… → Place arrow* and click where the doorway to that
+   room is. Place the arrow back from the other room too, so visitors can return
+   (the editor offers to take you there). *Start facing this way* and *Start the tour
+   here* set where visitors begin. *Save tour*.
+
+Visitors drag (or swipe) to look around, pinch or scroll to zoom, and click an arrow
+in the room or on the ring at the bottom to walk. On a keyboard: ← → (or A / D) turn,
+↑ or W walks to the arrow ahead, ↓ or S turns around. After each step the view keeps
+facing the way you walked.
+
 ## Shared Phone/Laptop Projects
 
 Phone and laptop must be on the same network. For camera access on phone, the laptop server must use HTTPS or localhost. Use ADB reverse proxy for local testing:
@@ -211,8 +247,9 @@ src/
 │   ├── tour/               Panorama viewer, hotspots
 │   ├── platform/           Marketing showcase
 │   ├── room-capture/       Camera capture studio
-│   └── scan/               3D scan recorder, job list, splat viewer
-├── server/                 Panorama worker, project/test-case/scan stores, scan runner
+│   ├── house-tour/         House tour library, viewer and arrow editor
+│   └── scan/               3D scan photo capture, recorder, job list, splat viewer
+├── server/                 Panorama worker, project/test-case/scan/tour stores, scan runner
 ├── data/                   Tour and platform content
 └── types/                  TypeScript definitions
 ```
@@ -221,7 +258,7 @@ src/
 
 - No authentication or user accounts
 - No cloud storage - all data is local
-- The photo studio requires a fixed standing point; walkable rooms come from the 3D scan section
+- The photo studio requires a fixed standing point; walkable rooms come from the 3D scan section, or link several standing points into a house tour
 - Photoreal 3D scans need an NVIDIA GPU worker
 - No WebXR/VR - browser-based only
 - Demo cart/checkout is illustrative only

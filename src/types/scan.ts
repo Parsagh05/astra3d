@@ -1,4 +1,7 @@
-/** A 3D scan: a walk-through video turned into a Gaussian splat scene. */
+/** A 3D scan: a walk-through video or a set of photos turned into a Gaussian splat scene. */
+
+/** What the scan was made from: a filmed walk-through, or photos taken while walking around. */
+export type ScanSource = "video" | "photos";
 
 export type ScanStatus = "queued" | "running" | "done" | "failed";
 
@@ -26,7 +29,12 @@ export type ScanJob = {
   progress: number;
   message: string;
   error: string | null;
-  video: { bytes: number; mimeType: string };
+  /** Missing on scans saved before photo scans existed: those are videos. */
+  source?: ScanSource;
+  /** Set for video scans. */
+  video?: { bytes: number; mimeType: string };
+  /** Set for photo scans: how many photos were uploaded (as one ZIP). */
+  photos?: { count: number; bytes: number };
   result?: ScanResult;
   worker?: { host: string; trainer: string };
   startedAt?: string;

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Turns a walk-through video of a room into a 3D Gaussian splat.
+"""Turns a walk-through video, or photos taken while walking around a room,
+into a 3D Gaussian splat.
 
 Stages, each reported to the job's job.json as it runs:
 
-1. frames  - picks the sharpest frame in every short time window of the
-             video (motion blur is the main enemy) and resizes to 1600 px;
+1. frames  - video: picks the sharpest frame in every short time window
+             (motion blur is the main enemy); photos: unpacks photos.zip and
+             drops the blurred ones.  Either way resized to 1600 px;
 2. poses   - COLMAP (pycolmap) finds the camera position of every frame
-             and a sparse 3D point cloud of the room;
+             and a sparse 3D point cloud of the room.  Video frames are
+             matched with their neighbours; photos (fewer, further apart,
+             possibly out of order) are matched every pair with every pair;
 3. training
    * trained: nerfstudio's `splatfacto` optimises millions of Gaussians on
      an NVIDIA GPU (ns-train, then ns-export gaussian-splat);
@@ -35,6 +39,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -54,7 +59,14 @@ from splat_format import (  # noqa: E402
 
 FRAME_MAX_DIMENSION = 1600
 MIN_FRAMES = 20
+MIN_PHOTOS = 20
 MIN_REGISTERED = 12
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+# A single phone photo is a few MB; anything far larger is not a photo.
+MAX_PHOTO_BYTES = 60 * 1024 * 1024
+# Up to this many photos every pair is matched (robust to any order);
+# beyond it matching all pairs gets slow on a CPU, so neighbours only.
+EXHAUSTIVE_MATCH_LIMIT = 150
 MAX_FEATURES = 4096
 PHONE_FOCAL_FACTOR = 0.75
 MAPPING_TIMEOUT_SECONDS = int(os.environ.get("ASTRA3D_SPLAT_MAPPING_TIMEOUT", "2400"))
@@ -203,16 +215,106 @@ def extract_frames(video: Path, output: Path, max_frames: int, report: Callable[
     return names
 
 
+def extract_photos(archive: Path, output: Path, max_frames: int, report: Callable[[float, str], None]) -> list[str]:
+    """Unpacks photos.zip as frame_00000.jpg... in capture (file name) order.
+
+    Entry names are never used as paths, so a crafted ZIP cannot write
+    outside `output`.  Photos far blurrier than the set's typical photo are
+    dropped while enough remain; more than `max_frames` are thinned evenly.
+    """
+    try:
+        bundle = zipfile.ZipFile(archive)
+    except (zipfile.BadZipFile, OSError) as error:
+        raise ScanError("The photos could not be read. Take them again.") from error
+    with bundle:
+        members = sorted(
+            (
+                member for member in bundle.infolist()
+                if not member.is_dir()
+                and Path(member.filename).suffix.lower() in PHOTO_EXTENSIONS
+                and not Path(member.filename).name.startswith(".")
+                and "__MACOSX" not in Path(member.filename).parts
+            ),
+            key=lambda member: member.filename,
+        )
+        if len(members) < MIN_PHOTOS:
+            raise ScanError(f"Only {len(members)} photos were found. Take at least {MIN_PHOTOS} while walking around the room.")
+        if len(members) > max_frames:
+            picks = np.unique(np.round(np.linspace(0, len(members) - 1, max_frames)).astype(int))
+            members = [members[index] for index in picks]
+
+        output.mkdir(parents=True, exist_ok=True)
+        kept: list[tuple[Path, float, tuple[int, ...]]] = []
+        for index, member in enumerate(members):
+            report(0.9 * index / len(members), f"Reading photos… {index + 1}/{len(members)}")
+            if member.file_size > MAX_PHOTO_BYTES:
+                continue
+            try:
+                data = bundle.read(member)
+            except (zipfile.BadZipFile, OSError, RuntimeError):
+                continue
+            image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+            if image is None:
+                continue
+            height, width = image.shape[:2]
+            scale = min(1.0, FRAME_MAX_DIMENSION / max(height, width))
+            if scale < 1.0:
+                image = cv2.resize(image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA)
+            small = cv2.resize(image, (320, max(2, round(320 * image.shape[0] / image.shape[1]))), interpolation=cv2.INTER_AREA)
+            target = output / f"photo_{index:05d}.jpg"
+            cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            kept.append((target, sharpness(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)), image.shape[:2]))
+
+    if len(kept) < MIN_PHOTOS:
+        raise ScanError(f"Only {len(kept)} photos could be opened. Take at least {MIN_PHOTOS} JPEG photos.")
+    median = float(np.median([score for _, score, _ in kept]))
+    sharp = [entry for entry in kept if entry[1] >= 0.3 * median]
+    if len(sharp) >= MIN_PHOTOS:
+        sharp_paths = {path for path, _, _ in sharp}
+        for path, _, _ in kept:
+            if path not in sharp_paths:
+                path.unlink(missing_ok=True)
+        kept = sharp
+
+    names: list[str] = []
+    for path, _, _ in kept:
+        name = f"frame_{len(names):05d}.jpg"
+        path.rename(output / name)
+        names.append(name)
+    dropped = len(members) - len(names)
+    report(1.0, f"Kept {len(names)} photos" + (f" ({dropped} blurred or unreadable left out)" if dropped else ""))
+    return names
+
+
+def same_size_images(images: Path) -> bool:
+    """True when every frame has one size, so all can share one camera model."""
+    sizes = set()
+    for path in images.iterdir():
+        image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+        if image is not None:
+            sizes.add((image.shape[0], image.shape[1]))
+        if len(sizes) > 1:
+            return False
+    return True
+
+
 # ----------------------------------------------------------------- poses
 
-def solve_poses(images: Path, work: Path, sparse_out: Path, report: Callable[[float, str], None]) -> Any:
-    """COLMAP: features, sequential matching (the frames are a path), mapping."""
+def solve_poses(images: Path, work: Path, sparse_out: Path, report: Callable[[float, str], None], source: str = "video") -> Any:
+    """COLMAP: features, matching, mapping.
+
+    Video frames are a dense path, so each is matched with its neighbours.
+    Photos are fewer, further apart and may be out of order (picked from a
+    gallery), so up to EXHAUSTIVE_MATCH_LIMIT every pair is matched.
+    """
     import pycolmap
 
+    unit = "photos" if source == "photos" else "frames"
+    total = len(list(images.iterdir()))
     database = work / "database.db"
     if database.exists():
         database.unlink()
-    report(0.05, "Finding features in every frame…")
+    report(0.05, f"Finding features in every {unit[:-1]}…")
     reader = pycolmap.ImageReaderOptions()
     # Phone video has square pixels and mild lens distortion: one focal
     # length and one radial term.  Separate fx/fy (OPENCV) self-calibrate
@@ -227,13 +329,21 @@ def solve_poses(images: Path, work: Path, sparse_out: Path, report: Callable[[fl
     # 4k features per frame is plenty for neighbouring video frames and keeps
     # mapping minutes, not hours, on a CPU.
     extraction.sift.max_num_features = MAX_FEATURES
-    pycolmap.extract_features(database, images, camera_mode=pycolmap.CameraMode.SINGLE,
+    # Photos picked from a gallery can mix portrait and landscape; each size
+    # then gets its own camera.  Video frames always share one.
+    camera_mode = pycolmap.CameraMode.SINGLE if source != "photos" or same_size_images(images) else pycolmap.CameraMode.AUTO
+    pycolmap.extract_features(database, images, camera_mode=camera_mode,
                               reader_options=reader, extraction_options=extraction)
-    report(0.35, "Matching neighbouring frames…")
-    pairing = pycolmap.SequentialPairingOptions()
-    pairing.overlap = 12
-    pairing.quadratic_overlap = True
-    pycolmap.match_sequential(database, pairing_options=pairing)
+    if source == "photos" and total <= EXHAUSTIVE_MATCH_LIMIT:
+        report(0.35, f"Matching every pair of {total} photos…")
+        pycolmap.match_exhaustive(database)
+    else:
+        report(0.35, f"Matching neighbouring {unit}…")
+        pairing = pycolmap.SequentialPairingOptions()
+        # Photos are further apart than video frames: look further ahead.
+        pairing.overlap = 20 if source == "photos" else 12
+        pairing.quadratic_overlap = True
+        pycolmap.match_sequential(database, pairing_options=pairing)
 
     report(0.6, "Solving camera positions…")
     mapping_dir = work / "mapping"
@@ -244,23 +354,31 @@ def solve_poses(images: Path, work: Path, sparse_out: Path, report: Callable[[fl
     options.max_num_models = 5
     options.extract_colors = True
     options.max_runtime_seconds = MAPPING_TIMEOUT_SECONDS
-    # Neighbouring video frames are close together: accept a narrower
-    # triangulation angle for the first pair than photo collections need.
-    options.mapper.init_min_tri_angle = 8.0
+    if source != "photos":
+        # Neighbouring video frames are close together: accept a narrower
+        # triangulation angle for the first pair than photo collections need.
+        options.mapper.init_min_tri_angle = 8.0
     registered_count = {"value": 0}
 
     def next_image() -> None:
         registered_count["value"] += 1
         if registered_count["value"] % 5 == 0:
-            report(0.6 + 0.35 * min(1.0, registered_count["value"] / max(1, len(list(images.iterdir())))),
-                   f"Solving camera positions… {registered_count['value']} frames placed")
+            report(0.6 + 0.35 * min(1.0, registered_count["value"] / max(1, total)),
+                   f"Solving camera positions… {registered_count['value']} {unit} placed")
 
     reconstructions = pycolmap.incremental_mapping(database, images, mapping_dir, options, next_image_callback=next_image)
     if not reconstructions:
+        if source == "photos":
+            raise ScanError("The photos could not be placed in 3D. Take a small step between photos, keep each photo "
+                            "overlapping the last one by about two thirds, and avoid blank walls.")
         raise ScanError("The frames could not be placed in 3D. Walk slowly, keep the room in view, and avoid pointing at blank walls.")
     best = max(reconstructions.values(), key=lambda rec: rec.num_reg_images())
-    total = len(list(images.iterdir()))
     if best.num_reg_images() < max(MIN_REGISTERED, 0.5 * total):
+        if source == "photos":
+            raise ScanError(
+                f"Only {best.num_reg_images()} of {total} photos could be placed. "
+                "Take more photos with small steps between them, so each one overlaps the last."
+            )
         raise ScanError(
             f"Only {best.num_reg_images()} of {total} frames could be placed. "
             "Move more slowly and keep overlapping views of the room in every part of the video."
@@ -268,7 +386,7 @@ def solve_poses(images: Path, work: Path, sparse_out: Path, report: Callable[[fl
     shutil.rmtree(sparse_out, ignore_errors=True)
     sparse_out.mkdir(parents=True)
     best.write(sparse_out)
-    report(1.0, f"Placed {best.num_reg_images()} of {total} frames")
+    report(1.0, f"Placed {best.num_reg_images()} of {total} {unit}")
     return best
 
 
@@ -470,18 +588,23 @@ def process_job(directory: Path, trainer_request: str, max_frames: int, iteratio
                worker={"host": socket.gethostname(), "trainer": trainer}, startedAt=now_iso())
     stop_heartbeat = job.keep_alive()
     try:
-        video = directory / job.data["video"]["file"]
+        photos = job.data.get("photos")
+        source = "photos" if photos else "video"
         # Re-processing reuses frames and poses from an earlier run.
         if images.exists() and (sparse / "images.bin").exists():
             import pycolmap
 
             reconstruction = pycolmap.Reconstruction(str(sparse))
             names = sorted(path.name for path in images.iterdir())
-            job.progress("poses", 1.0, "Reusing frames and camera positions from the last run")
+            job.progress("poses", 1.0, f"Reusing {'photos' if source == 'photos' else 'frames'} and camera positions from the last run")
         else:
             shutil.rmtree(work, ignore_errors=True)
-            names = extract_frames(video, images, max_frames, lambda f, m: job.progress("frames", f, m))
-            reconstruction = solve_poses(images, work, sparse, lambda f, m: job.progress("poses", f, m))
+            if photos:
+                names = extract_photos(directory / photos["file"], images, max_frames, lambda f, m: job.progress("frames", f, m))
+            else:
+                names = extract_frames(directory / job.data["video"]["file"], images, max_frames,
+                                       lambda f, m: job.progress("frames", f, m))
+            reconstruction = solve_poses(images, work, sparse, lambda f, m: job.progress("poses", f, m), source)
 
         if trainer == "nerfstudio":
             gaussians = train_nerfstudio(processed, work, job, iterations)
@@ -489,7 +612,7 @@ def process_job(directory: Path, trainer_request: str, max_frames: int, iteratio
             job.progress("training", 0.5, "Building a preview from the reconstructed points…")
             xyz, rgb, _ = sparse_points(reconstruction)
             if len(xyz) < 200:
-                raise ScanError("Too few 3D points were found. Film a room with more visible detail and better light.")
+                raise ScanError("Too few 3D points were found. Capture a room with more visible detail and better light.")
             gaussians = preview_gaussians(xyz, rgb)
         job.progress("export", 0.5, "Writing the scene for the viewer…")
         write_scene(job, gaussians, reconstruction, images, "trained" if trainer == "nerfstudio" else "preview", len(names))

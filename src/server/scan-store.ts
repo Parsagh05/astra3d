@@ -13,7 +13,8 @@ import type { ScanFile, ScanJob, ScanResult, ScanStage, ScanStatus } from "@/typ
  * Scan jobs live on disk, one folder per scan under <data>/scans/<id>/:
  *
  *   job.json      status, stage and progress (rewritten by the worker)
- *   video.<ext>   the uploaded walk-through
+ *   video.<ext>   the uploaded walk-through, or
+ *   photos.zip    the photos taken while walking around the room
  *   claim.lock    held by whoever is working on the job (O_EXCL)
  *   scene.splat, scene.json, poster.jpg, scene.ply, pipeline.log   results
  *
@@ -26,7 +27,12 @@ const SCAN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 const JOB_FILE = "job.json";
 const CLAIM_FILE = "claim.lock";
 const DEFAULT_MAX_BYTES = 1536 * 1024 * 1024;
-const MIN_VIDEO_BYTES = 64 * 1024;
+const MIN_UPLOAD_BYTES = 64 * 1024;
+/** Fewer photos rarely give COLMAP enough overlapping views to place them. */
+export const MIN_SCAN_PHOTOS = 20;
+export const MAX_SCAN_PHOTOS = 400;
+/** Photos arrive as one uncompressed ZIP so a phone sends a single request. */
+export const PHOTO_ARCHIVE_TYPES = ["application/zip", "application/x-zip-compressed"];
 /** Workers beat every 20 s; a running job silent this long has died. */
 export const STALE_AFTER_MS = 10 * 60 * 1000;
 
@@ -37,9 +43,10 @@ export const VIDEO_TYPES: Record<string, string> = {
   "video/x-matroska": "mkv",
 };
 
-type StoredScanJob = ScanJob & {
+type StoredScanJob = Omit<ScanJob, "video" | "photos"> & {
   version: 1;
-  video: ScanJob["video"] & { file: string };
+  video?: NonNullable<ScanJob["video"]> & { file: string };
+  photos?: NonNullable<ScanJob["photos"]> & { file: string };
   heartbeatAt?: string;
 };
 
@@ -133,7 +140,9 @@ export function publicScan(job: StoredScanJob): ScanJob {
     progress: Math.max(0, Math.min(1, Number(job.progress) || 0)),
     message: job.message ?? "",
     error: job.error ?? null,
-    video: { bytes: job.video.bytes, mimeType: job.video.mimeType },
+    source: job.photos ? "photos" : "video",
+    ...(job.video ? { video: { bytes: job.video.bytes, mimeType: job.video.mimeType } } : {}),
+    ...(job.photos ? { photos: { count: job.photos.count, bytes: job.photos.bytes } } : {}),
     ...(result ? { result } : {}),
     ...(job.worker ? { worker: { host: job.worker.host, trainer: job.worker.trainer } } : {}),
     ...(job.startedAt ? { startedAt: job.startedAt } : {}),
@@ -147,13 +156,36 @@ function byteLimiter(limit: number) {
     transform(chunk: Buffer, _encoding, callback) {
       total += chunk.length;
       if (total > limit) {
-        callback(new ScanStoreError(`The video is larger than ${Math.round(limit / 1024 / 1024)} MB.`, 413));
+        callback(new ScanStoreError(`The upload is larger than ${Math.round(limit / 1024 / 1024)} MB.`, 413));
         return;
       }
       callback(null, chunk);
     },
   });
   return { counter, bytes: () => total };
+}
+
+/**
+ * Number of entries in a ZIP, read from its end-of-central-directory record
+ * (the last 22 bytes plus an optional comment).  Null when the file is not a
+ * ZIP.  The worker still opens every photo; this only rejects obvious junk
+ * and records the count before the upload is queued.
+ */
+export async function zipEntryCount(filePath: string) {
+  const handle = await open(filePath, "r");
+  try {
+    const { size } = await handle.stat();
+    const length = Math.min(size, 22 + 0xffff);
+    if (length < 22) return null;
+    const tail = Buffer.alloc(length);
+    await handle.read(tail, 0, length, size - length);
+    for (let offset = length - 22; offset >= 0; offset -= 1) {
+      if (tail.readUInt32LE(offset) === 0x06054b50) return tail.readUInt16LE(offset + 10);
+    }
+    return null;
+  } finally {
+    await handle.close();
+  }
 }
 
 export type CreateScanInput = {
@@ -164,19 +196,20 @@ export type CreateScanInput = {
 };
 
 /**
- * Streams an uploaded video to disk (never buffering it in memory) and
- * queues it.  The job appears only once the upload is complete: everything
+ * Streams an uploaded video, or a ZIP of photos, to disk (never buffering
+ * it in memory) and queues it.  The job appears only once the upload is complete: everything
  * is written to a hidden staging folder, then renamed into place.
  */
 export async function createScan(input: CreateScanInput) {
   const mimeType = input.mimeType.split(";")[0].trim().toLowerCase();
   const extension = VIDEO_TYPES[mimeType];
-  if (!extension) {
-    throw new ScanStoreError("Upload an MP4, MOV, WebM or MKV video.", 415);
+  const isPhotos = PHOTO_ARCHIVE_TYPES.includes(mimeType);
+  if (!extension && !isPhotos) {
+    throw new ScanStoreError("Upload an MP4, MOV, WebM or MKV video, or take photos in the 3D scan page.", 415);
   }
   const limit = maxScanBytes();
   if (input.declaredBytes !== undefined && input.declaredBytes > limit) {
-    throw new ScanStoreError(`The video is larger than ${Math.round(limit / 1024 / 1024)} MB.`, 413);
+    throw new ScanStoreError(`The upload is larger than ${Math.round(limit / 1024 / 1024)} MB.`, 413);
   }
 
   const root = scansRoot();
@@ -185,16 +218,28 @@ export async function createScan(input: CreateScanInput) {
   const staging = path.join(root, `.staging-${id}`);
   await mkdir(staging);
   try {
-    const videoFile = `video.${extension}`;
+    const inputFile = isPhotos ? "photos.zip" : `video.${extension}`;
     const limiter = byteLimiter(limit);
     await pipeline(
       Readable.fromWeb(input.body as unknown as NodeReadableStream<Uint8Array>),
       limiter.counter,
-      createWriteStream(path.join(staging, videoFile), { flags: "wx" }),
+      createWriteStream(path.join(staging, inputFile), { flags: "wx" }),
     );
     const bytes = limiter.bytes();
-    if (bytes < MIN_VIDEO_BYTES) {
-      throw new ScanStoreError("The video is empty or too short.", 400);
+    if (bytes < MIN_UPLOAD_BYTES) {
+      throw new ScanStoreError(isPhotos ? "The photos are missing or empty." : "The video is empty or too short.", 400);
+    }
+    let photoCount = 0;
+    if (isPhotos) {
+      const count = await zipEntryCount(path.join(staging, inputFile));
+      if (count === null) throw new ScanStoreError("The photos could not be read. Take them again.", 415);
+      if (count < MIN_SCAN_PHOTOS) {
+        throw new ScanStoreError(`Only ${count} photos arrived. Take at least ${MIN_SCAN_PHOTOS} while walking around the room.`, 400);
+      }
+      if (count > MAX_SCAN_PHOTOS) {
+        throw new ScanStoreError(`That is ${count} photos; the server takes up to ${MAX_SCAN_PHOTOS} per scan.`, 413);
+      }
+      photoCount = count;
     }
     const createdAt = now();
     const job: StoredScanJob = {
@@ -208,7 +253,10 @@ export async function createScan(input: CreateScanInput) {
       progress: 0,
       message: "Waiting for a worker…",
       error: null,
-      video: { file: videoFile, bytes, mimeType },
+      source: isPhotos ? "photos" : "video",
+      ...(isPhotos
+        ? { photos: { file: inputFile, count: photoCount, bytes } }
+        : { video: { file: inputFile, bytes, mimeType } }),
     };
     await writeJob(staging, job);
     await rename(staging, path.join(root, id));
@@ -235,7 +283,7 @@ async function recoverStale(directory: string, job: StoredScanJob, isActive: (id
   const failed: StoredScanJob = {
     ...job,
     status: "failed",
-    error: "The worker stopped responding. Retry to process the video again.",
+    error: `The worker stopped responding. Retry to process the ${job.photos ? "photos" : "video"} again.`,
     message: "Worker stopped",
     updatedAt: now(),
     finishedAt: now(),

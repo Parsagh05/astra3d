@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   CircleGauge,
+  Footprints,
   LockKeyhole,
   Minus,
   Plus,
@@ -635,7 +636,13 @@ export function RoomStudio() {
 
               <Link className={styles.savedRoomButton} href="/scan">
                 <span><Box aria-hidden="true" /></span>
-                <span><strong>3D walk-through scan</strong><small>Film a video instead and walk through the room in 3D</small></span>
+                <span><strong>3D walk-through scan</strong><small>Take photos or film a video and walk through the room in 3D</small></span>
+                <ChevronRight aria-hidden="true" />
+              </Link>
+
+              <Link className={styles.savedRoomButton} href="/tours">
+                <span><Footprints aria-hidden="true" /></span>
+                <span><strong>House tour</strong><small>Link your 360° rooms with arrows and walk room to room</small></span>
                 <ChevronRight aria-hidden="true" />
               </Link>
             </div>
